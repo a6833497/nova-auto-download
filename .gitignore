@@ -1,0 +1,36 @@
+# dependencies
+node_modules/
+
+# backups
+*.bak
+*.bak.*
+
+# python
+__pycache__/
+*.pyc
+*.pyo
+
+# env / secrets
+.env
+.env.*
+config.json
+*-session.json
+*.session.json
+session.json
+
+# logs
+*.log
+sync.log
+
+# cache / data
+.cache/
+nova-data/
+archive/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# tar backups
+*.tgz
+*.tar.gz

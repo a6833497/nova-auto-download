@@ -1,0 +1,6 @@
+{
+  "_comment": "复制为 config.json 后填入真实 BI 报表 URL（含 id 和 accessTicket）。config.json 已加入 .gitignore，不要提交。",
+  "reports": [
+    { "name": "印尼1-Nova", "url": "https://bi.aliyuncs.com/token3rd/report/view.htm?id=REPORT_ID&accessTicket=ACCESS_TICKET&dd_orientation=auto", "voiceRoomTab": "印尼语音房主播薪资奖励" }
+  ]
+}

@@ -1,0 +1,221 @@
+{
+  "baseURL": "https://api.linke.ai",
+  "authentication": {
+    "method": "HMAC签名 + Cookie Token",
+    "headers": {
+      "X-Auth-Token": "从cookie中读取 oauth_token",
+      "X-Auth-Timestamp": "当前时间戳",
+      "X-Auth-Signature": "HmacSHA1(请求路径+参数, oauth_token_secret) → Base64",
+      "X-App-Language": "从UserAgent解析，默认en",
+      "Country": "从UserAgent解析，默认US"
+    },
+    "login_flow": "Google OAuth → Firebase → /api/guild/passport/login → 设置oauth_token和oauth_token_secret到cookie",
+    "signature_algorithm": "CryptoJS.HmacSHA1(urlPath + queryString, cookie:oauth_token_secret) → Base64"
+  },
+  "apis": {
+    "数据概览": [
+      {
+        "name": "公会汇总数据",
+        "url": "GET /api/guild/summary_data",
+        "params": "无",
+        "description": "首页Dashboard汇总数据"
+      },
+      {
+        "name": "公会信息",
+        "url": "GET /api/streamer/guild_info",
+        "params": "无",
+        "description": "公会基本信息"
+      },
+      {
+        "name": "用户信息",
+        "url": "GET /api/guild/user_info",
+        "params": "无",
+        "description": "当前登录用户信息"
+      }
+    ],
+    "主播管理": [
+      {
+        "name": "在线主播列表",
+        "url": "GET /api/guild/online_anchors",
+        "params": "分页参数(params)",
+        "description": "当前在线的主播列表"
+      },
+      {
+        "name": "搜索主播",
+        "url": "GET /api/guild/search_anchors",
+        "params": "搜索关键字(params)",
+        "description": "搜索公会下的主播"
+      },
+      {
+        "name": "主播详情",
+        "url": "GET /api/guild/anchor_info",
+        "params": "主播ID(params)",
+        "description": "单个主播详细信息"
+      },
+      {
+        "name": "添加主播",
+        "url": "POST /api/guild/add_anchor",
+        "params": "主播信息(body)",
+        "description": "添加新主播到公会"
+      },
+      {
+        "name": "补充主播资料",
+        "url": "POST /api/guild/add_anchor_info",
+        "params": "主播资料(body)",
+        "description": "补充完善主播信息"
+      },
+      {
+        "name": "移除主播",
+        "url": "POST /api/guild/anchor_eliminate_guild",
+        "params": "主播ID(params)",
+        "description": "将主播从公会移除"
+      }
+    ],
+    "数据统计": [
+      {
+        "name": "主播数据统计",
+        "url": "GET /api/guild/streamer_stat",
+        "params": "日期范围/筛选条件(params)",
+        "description": "主播维度的数据统计（1v1聊天相关）"
+      },
+      {
+        "name": "语音房数据统计",
+        "url": "GET /api/guild/live_room_stat",
+        "params": "日期范围/筛选条件(params)",
+        "description": "语音房维度的数据统计"
+      },
+      {
+        "name": "导出主播数据",
+        "url": "POST /api/guild/export_streamer_stat",
+        "params": "导出条件(body)",
+        "description": "导出主播数据为文件"
+      },
+      {
+        "name": "导出语音房数据",
+        "url": "POST /api/guild/export_live_room_stat",
+        "params": "导出条件(body)",
+        "description": "导出语音房数据为文件"
+      }
+    ],
+    "财务钱包": [
+      {
+        "name": "收入明细",
+        "url": "GET /api/guild/get_revenue_detail",
+        "params": "日期/类型(params)",
+        "description": "公会收入详细记录"
+      },
+      {
+        "name": "钱包信息",
+        "url": "GET /api/guild/wallet_info",
+        "params": "无",
+        "description": "公会钱包余额等信息"
+      },
+      {
+        "name": "提现记录",
+        "url": "GET /api/guild/get_withdraw",
+        "params": "无",
+        "description": "提现记录列表"
+      },
+      {
+        "name": "申请提现",
+        "url": "POST /api/guild/apply_withdraw",
+        "params": "提现金额等(body)",
+        "description": "发起提现申请"
+      }
+    ],
+    "线下结算": [
+      {
+        "name": "结算列表",
+        "url": "GET /api/guild/offline/settlement",
+        "params": "分页/筛选(params)",
+        "description": "线下结算记录列表"
+      },
+      {
+        "name": "结算详情",
+        "url": "GET /api/guild/offline/settlement/detail",
+        "params": "结算ID(params)",
+        "description": "单条结算详细信息"
+      },
+      {
+        "name": "结算弹窗(GET)",
+        "url": "GET /api/guild/offline/settlement/popup",
+        "params": "无",
+        "description": "结算确认弹窗数据"
+      },
+      {
+        "name": "结算确认(POST)",
+        "url": "POST /api/guild/offline/settlement/popup",
+        "params": "确认数据(body)",
+        "description": "提交结算确认"
+      },
+      {
+        "name": "下载结算文件",
+        "url": "GET /api/guild/offline/settlement/download",
+        "params": "结算ID(params)",
+        "description": "下载结算明细文件"
+      },
+      {
+        "name": "上传结算文件",
+        "url": "POST /api/guild/offline/settlement/upload_single",
+        "params": "文件(multipart/form-data)",
+        "description": "上传结算相关文件"
+      }
+    ],
+    "账号设置": [
+      {
+        "name": "登录",
+        "url": "POST /api/guild/passport/login",
+        "params": "Firebase token(body)",
+        "description": "用Firebase ID Token换取oauth_token"
+      },
+      {
+        "name": "更新公会信息",
+        "url": "POST /api/guild/update_info",
+        "params": "公会资料(body)",
+        "description": "更新公会基本信息"
+      },
+      {
+        "name": "更新邀请码",
+        "url": "POST /api/guild/update_invite_code",
+        "params": "邀请码(body)",
+        "description": "更新公会邀请码"
+      },
+      {
+        "name": "发送验证码",
+        "url": "POST /api/guild/send_code",
+        "params": "无",
+        "description": "发送邮箱/手机验证码"
+      }
+    ],
+    "工具": [
+      {
+        "name": "OSS上传凭证",
+        "url": "GET /api/upload/oss-cred",
+        "params": "无",
+        "description": "获取阿里云OSS上传临时凭证"
+      },
+      {
+        "name": "生成短链接",
+        "url": "POST /api/url/gen_short",
+        "params": "原始URL(body)",
+        "description": "将长URL转为短链接"
+      }
+    ]
+  },
+  "frontend_routes": [
+    { "path": "/dashboard", "title": "数据中心", "js": "index-legacy-3lcYBfPT.js" },
+    { "path": "/anchorData", "title": "主播数据(1v1聊天)", "js": "index-legacy-CW2w5f5R.js" },
+    { "path": "/anchorRoomData", "title": "语音房数据", "js": "room-legacy-9njWO40y.js" },
+    { "path": "/anchorManage", "title": "主播管理", "js": "index-legacy-DwHu8PyW.js" },
+    { "path": "/addAnchor", "title": "添加主播", "js": "addAnchor-legacy-3Gg-3JNn.js" },
+    { "path": "/onlineList", "title": "在线主播", "js": "online-list-legacy-DAaOEoED.js" },
+    { "path": "/wallet", "title": "钱包", "js": "index-legacy-CTV6rD2p.js" },
+    { "path": "/withdrawal", "title": "提现", "js": "withdrawal-legacy-DMZj7ifq.js" },
+    { "path": "/withdrawalStatus", "title": "提现状态", "js": "withdrawalStatus-legacy-B-1VajQx.js" },
+    { "path": "/withdrawalDetails", "title": "提现详情", "js": "Details-legacy-BPATYdm_.js" },
+    { "path": "/withdrawalSettlementDetail", "title": "结算详情", "js": "SettlementDetail-legacy-Bx84C4L2.js" },
+    { "path": "/tradeList", "title": "交易明细", "js": "tradeList-legacy-kRMSfoyq.js" },
+    { "path": "/information", "title": "补充资料", "js": "index-legacy-CYzS72z-.js" },
+    { "path": "/operateModifyAnchorInfo", "title": "修改主播资料", "js": "modifyAnchorInfo-legacy-B1mvNFnZ.js" }
+  ]
+}
