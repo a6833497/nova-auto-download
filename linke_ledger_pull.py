@@ -36,9 +36,8 @@ def database_url_from_environment() -> str | None:
 def pull_pages(call: Callable[[str], dict[str, Any]], path: str, day: str, value_key: str,
                page_size: int = PAGE_SIZE, max_pages: int = 120) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """Read every raw page; zero-value rows must never terminate pagination."""
-    positive: list[dict[str, Any]] = []
+    positive_by_sid: dict[str, dict[str, Any]] = {}
     evidence: list[dict[str, Any]] = []
-    seen_ids: set[str] = set()
     for page in range(1, max_pages + 1):
         query = f"{path}?begin={day}&end={day}&page_num={page}&page_size={page_size}&type=0"
         payload = call(query)
@@ -46,23 +45,31 @@ def pull_pages(call: Callable[[str], dict[str, Any]], path: str, day: str, value
         if not isinstance(items, list):
             raise RuntimeError(f"Linky response items is not a list: page={page}")
         kept = [row for row in items if float(row.get(value_key) or 0) > 0]
+        duplicate_sids: list[str] = []
         for row in kept:
             sid = str(row.get("sid") or "").strip()
             if not sid:
                 raise RuntimeError(f"Linky positive row has no SID: page={page}")
-            if sid in seen_ids:
-                raise RuntimeError(f"Linky duplicate positive SID across pages: {sid}")
-            seen_ids.add(sid)
-        positive.extend(kept)
+            if sid in positive_by_sid:
+                duplicate_sids.append(sid)
+            # Keep the last occurrence, matching the ledger's established SID map semantics.
+            positive_by_sid[sid] = row
         total = payload.get("total")
-        evidence.append({"page": page, "rawCount": len(items), "positiveCount": len(kept), "reportedTotal": total})
+        evidence.append({
+            "page": page,
+            "rawCount": len(items),
+            "positiveCount": len(kept),
+            "reportedTotal": total,
+            "duplicatePositiveSidCount": len(duplicate_sids),
+            "duplicatePositiveSids": sorted(set(duplicate_sids)),
+        })
         if len(items) < page_size:
             break
         if isinstance(total, (int, float)) and page * page_size >= int(total):
             break
     else:
         raise RuntimeError(f"Linky pagination exceeded safety cap: {max_pages}")
-    return positive, evidence
+    return list(positive_by_sid.values()), evidence
 
 
 def atomic_json(path: Path, value: Any) -> None:

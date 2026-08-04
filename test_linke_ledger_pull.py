@@ -46,12 +46,19 @@ class PaginationTests(unittest.TestCase):
         self.assertEqual(rows[-1]["sid"], "later")
         self.assertEqual([x["rawCount"] for x in evidence], [500, 1])
 
-    def test_duplicate_positive_sid_fails_closed(self):
+    def test_duplicate_positive_sid_is_recorded_and_last_value_wins(self):
         pages = {
-            1: {"items": [{"sid": "1", "v": 1}] * 500, "total": 501},
+            1: {"items": [{"sid": str(i), "v": 1} for i in range(500)], "total": 501},
+            2: {"items": [{"sid": "39348432", "v": 1}, {"sid": "39348432", "v": 2}], "total": 501},
         }
-        with self.assertRaisesRegex(RuntimeError, "duplicate"):
-            pull_pages(lambda _path: pages[1], "/x", "20260728", "v")
+        def call(path):
+            page = int(path.split("page_num=")[1].split("&")[0])
+            return pages[page]
+        rows, evidence = pull_pages(call, "/x", "20260728", "v")
+        self.assertEqual(len(rows), 501)
+        self.assertEqual(next(row for row in rows if row["sid"] == "39348432")["v"], 2)
+        self.assertEqual(evidence[1]["duplicatePositiveSidCount"], 1)
+        self.assertEqual(evidence[1]["duplicatePositiveSids"], ["39348432"])
 
 
 if __name__ == "__main__":
