@@ -4,10 +4,17 @@ from tempfile import NamedTemporaryFile, TemporaryDirectory
 from pathlib import Path
 import datetime as dt
 
-from linke_ledger_pull import atomic_json, database_url_from_environment, evidence_filename, prune_evidence, pull_pages
+from linke_ledger_pull import atomic_json, database_url_from_environment, evidence_filename, prune_evidence
+from linky_api_pagination import pull_pages
 
 
 class PaginationTests(unittest.TestCase):
+    def test_all_production_callers_share_or_explicitly_block_pagination(self):
+        root=Path(__file__).parent
+        self.assertIn('from linky_api_pagination import pull_pages',(root/'linke_ledger_pull.py').read_text())
+        self.assertIn('from linky_api_pagination import pull_pages',(root/'linke_live_pull.py').read_text())
+        self.assertIn('is retired and must not enter a production execution path',(root/'backfill_voice_call.py').read_text())
+
     def test_existing_conflict_does_not_reassign_a_sid_to_another_guild(self):
         source=Path(__file__).with_name('linke_ledger_pull.py').read_text()
         conflict=source.split('ON CONFLICT (sid,stat_date) DO UPDATE SET',1)[1]
@@ -46,7 +53,7 @@ class PaginationTests(unittest.TestCase):
         self.assertEqual(rows[-1]["sid"], "later")
         self.assertEqual([x["rawCount"] for x in evidence], [500, 1])
 
-    def test_duplicate_positive_sid_is_recorded_and_last_value_wins(self):
+    def test_duplicate_positive_sid_fails_instead_of_overwriting(self):
         pages = {
             1: {"items": [{"sid": str(i), "v": 1} for i in range(500)], "total": 502},
             2: {"items": [{"sid": "39348432", "v": 1}, {"sid": "39348432", "v": 2}], "total": 502},
@@ -54,11 +61,16 @@ class PaginationTests(unittest.TestCase):
         def call(path):
             page = int(path.split("page_num=")[1].split("&")[0])
             return pages[page]
-        rows, evidence = pull_pages(call, "/x", "20260728", "v")
-        self.assertEqual(len(rows), 501)
-        self.assertEqual(next(row for row in rows if row["sid"] == "39348432")["v"], 2)
-        self.assertEqual(evidence[1]["duplicatePositiveSidCount"], 1)
-        self.assertEqual(evidence[1]["duplicatePositiveSids"], ["39348432"])
+        with self.assertRaisesRegex(RuntimeError, "duplicate raw SID"):
+            pull_pages(call, "/x", "20260728", "v")
+
+    def test_total_change_and_raw_count_overflow_fail(self):
+        pages = {1: {"items": [{"sid": "1", "v": 1}], "total": 2},
+                 2: {"items": [{"sid": "2", "v": 1}], "total": 3}}
+        with self.assertRaisesRegex(RuntimeError, "total changed"):
+            pull_pages(lambda path: pages[int(path.split("page_num=")[1].split("&")[0])], "/x", "20260728", "v", page_size=1)
+        with self.assertRaisesRegex(RuntimeError, "exceed"):
+            pull_pages(lambda _path: {"items": [{"sid": "1", "v": 1}, {"sid": "2", "v": 1}], "total": 1}, "/x", "20260728", "v", page_size=2)
 
     def test_string_total_stops_at_the_reported_last_page(self):
         pages = {

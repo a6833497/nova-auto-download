@@ -1,18 +1,13 @@
-# Linky voice-room finality
+# Linky 语音房日终核对
 
-The realtime ledger is provisional until the independent BI voice-room report agrees per SID.
-
-1. `linke_ledger_pull.py GUILD YYYYMMDD` reads every raw API page. Zero-value rows do not terminate pagination. It atomically archives response bodies and a checksum under the existing `state/` tree (`LINKE_EVIDENCE_DIR`, default `state/linky-ledger-evidence`) before the existing ledger upsert. Current-day hourly calls replace one latest file; ended business days keep timestamped D+1/retry versions for investigation. Authorization headers, cookies and BI tickets are never persisted. The directory is mode `0700`, files are `0600`, and matching evidence files are retained for 14 days by default (`LINKE_EVIDENCE_RETENTION_DAYS`).
-2. After BI download, run the read-only audit:
-
-   ```sh
-   python3 linky_voice_bi_audit.py \
-     --date 2026-07-28 \
-     --guild Nova-Indonesia \
-     --bi-file /path/to/印尼1-Nova_语音房主播行为数据.json \
-     --output /home/ubuntu/nova-auto-download/state/linky-voice-audit/2026-07-28-Nova-Indonesia.json
-   ```
-
-The audit never updates the ledger. `MATCH` allows the dashboard to show `BI已核对`; `MISMATCH` remains visible with SID count and amount delta; missing or invalid evidence remains `实时暂存，等待BI核对`.
-
-Do not use the salary-reward report for daily revenue finality. The comparable BI fields are `active_date(day)`, `sid`, and `diamond_amount` from `语音房主播行为数据` under UTC+0.
+- 当天实时作战继续读取 Linky 实时 API；实时日账本不是最终结算信号。
+- 已结束 UTC 业务日只使用阿里云 BI 的 `语音房主播行为数据` 核对，字段为
+  `active_date(day)`、`guild_name`、`sid`、`diamond_amount`，金额单位为钻石。
+- `印尼语音房主播薪资奖励` 是周报，不能进入每日核对。
+- 映射只读取 `guild_source_dictionary` 中 `VOICE:` 开头的当前有效 Linky 来源：
+  - 印尼1语音房：`Nova-Indonesia` ↔ BI `Nova`
+  - 印尼2语音房：`Carote-Indonesia` + `Carote2-Indonesia` ↔ BI `Carote` + `Carote2`
+  - 印尼3语音房：`Permata-Indonesia` ↔ BI `Permata`
+- `daily-sync.sh` 在现有下载和写锁内调用 `linky_voice_bi_batch.py`，只原子生成0600证据，
+  不写 `linke_streamer_daily`、历史收益或 publication。
+- 状态只有 `WAITING_BI`、`BI_VERIFIED`、`BI_MISMATCH`。后端只校验证据并返回，前端不推导状态。
