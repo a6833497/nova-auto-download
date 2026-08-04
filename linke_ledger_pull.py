@@ -148,7 +148,7 @@ def main() -> int:
     parser.add_argument("guild")
     parser.add_argument("day", help="UTC business date as YYYYMMDD")
     parser.add_argument("--tokens", default=os.getenv("LINKE_GUILD_TOKENS", "guild-tokens.json"))
-    parser.add_argument("--evidence-dir", default=os.getenv("LINKE_EVIDENCE_DIR", "evidence/linky-ledger"))
+    parser.add_argument("--evidence-dir", default=os.getenv("LINKE_EVIDENCE_DIR", "state/linky-ledger-evidence"))
     parser.add_argument("--evidence-retention-days", type=int, default=int(os.getenv("LINKE_EVIDENCE_RETENTION_DAYS", "14")))
     parser.add_argument("--dry-run", action="store_true", help="fetch and archive only; do not write the ledger")
     args = parser.parse_args()
