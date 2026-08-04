@@ -141,7 +141,7 @@ def write_ledger(database_url: str, guild: str, day: str, streamer: list[dict[st
               (guild,sid,stat_date,chat_earns,voice_call_earns,text_earns,unlock_image_earns,task_earns,other_earns,
                room_diamonds,online_time,on_mic_time,new_fans,ten_min_reply,new_level4,settled) VALUES %s
               ON CONFLICT (sid,stat_date) DO UPDATE SET
-               guild=EXCLUDED.guild,chat_earns=EXCLUDED.chat_earns,voice_call_earns=EXCLUDED.voice_call_earns,
+               chat_earns=EXCLUDED.chat_earns,voice_call_earns=EXCLUDED.voice_call_earns,
                text_earns=EXCLUDED.text_earns,unlock_image_earns=EXCLUDED.unlock_image_earns,
                task_earns=EXCLUDED.task_earns,other_earns=EXCLUDED.other_earns,
                room_diamonds=EXCLUDED.room_diamonds,online_time=EXCLUDED.online_time,

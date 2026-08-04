@@ -8,6 +8,11 @@ from linke_ledger_pull import atomic_json, database_url_from_environment, eviden
 
 
 class PaginationTests(unittest.TestCase):
+    def test_existing_conflict_does_not_reassign_a_sid_to_another_guild(self):
+        source=Path(__file__).with_name('linke_ledger_pull.py').read_text()
+        conflict=source.split('ON CONFLICT (sid,stat_date) DO UPDATE SET',1)[1]
+        self.assertNotIn('guild=EXCLUDED.guild',conflict)
+
     def test_only_ended_business_days_keep_multiple_timestamped_versions(self):
         detected=dt.datetime(2026,8,4,9,30,tzinfo=dt.timezone.utc)
         self.assertEqual(evidence_filename('20260804','Nova-Indonesia',detected,dt.date(2026,8,4)),'20260804-Nova-Indonesia.json')
