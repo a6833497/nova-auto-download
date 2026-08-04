@@ -48,8 +48,8 @@ class PaginationTests(unittest.TestCase):
 
     def test_duplicate_positive_sid_is_recorded_and_last_value_wins(self):
         pages = {
-            1: {"items": [{"sid": str(i), "v": 1} for i in range(500)], "total": 501},
-            2: {"items": [{"sid": "39348432", "v": 1}, {"sid": "39348432", "v": 2}], "total": 501},
+            1: {"items": [{"sid": str(i), "v": 1} for i in range(500)], "total": 502},
+            2: {"items": [{"sid": "39348432", "v": 1}, {"sid": "39348432", "v": 2}], "total": 502},
         }
         def call(path):
             page = int(path.split("page_num=")[1].split("&")[0])
@@ -63,7 +63,7 @@ class PaginationTests(unittest.TestCase):
     def test_string_total_stops_at_the_reported_last_page(self):
         pages = {
             1: {"items": [{"sid": str(i), "v": 1} for i in range(500)], "total": "501"},
-            2: {"items": [{"sid": "later", "v": 2}] * 500, "total": "501"},
+            2: {"items": [{"sid": "later", "v": 2}], "total": "501"},
         }
         calls = []
         def call(path):
@@ -73,6 +73,36 @@ class PaginationTests(unittest.TestCase):
         rows, _evidence = pull_pages(call, "/x", "20260728", "v")
         self.assertEqual(calls, [1, 2])
         self.assertEqual(len(rows), 501)
+
+    def test_live_room_duplicate_sid_fails_closed(self):
+        page = {"items": [{"sid": "1", "v": 1}, {"sid": "1", "v": 2}], "total": 2}
+        with self.assertRaisesRegex(RuntimeError, "duplicate raw SID"):
+            pull_pages(lambda _path: page, "/voice", "20260728", "v", page_size=2, require_unique_sid=True)
+
+    def test_repeated_page_fails_closed(self):
+        page = {"items": [{"sid": "1", "v": 1}, {"sid": "2", "v": 0}], "total": 3}
+        with self.assertRaisesRegex(RuntimeError, "repeated response page"):
+            pull_pages(lambda _path: page, "/voice", "20260728", "v", page_size=2)
+
+    def test_short_page_before_total_fails_closed(self):
+        page = {"items": [{"sid": "1", "v": 1}], "total": 2}
+        with self.assertRaisesRegex(RuntimeError, "ended before reported total"):
+            pull_pages(lambda _path: page, "/voice", "20260728", "v", page_size=2)
+
+    def test_protocol_starts_at_page_num_one_with_exact_parameters(self):
+        paths = []
+        def call(path):
+            paths.append(path)
+            return {"items": [], "total": 0}
+        pull_pages(call, "/voice", "20260728", "v")
+        self.assertEqual(paths, ["/voice?begin=20260728&end=20260728&page_num=1&page_size=500&type=0"])
+
+    def test_max_page_cap_fails_closed(self):
+        def call(path):
+            page = int(path.split("page_num=")[1].split("&")[0])
+            return {"items": [{"sid": str(page), "v": 1}], "total": 3}
+        with self.assertRaisesRegex(RuntimeError, "safety cap"):
+            pull_pages(call, "/voice", "20260728", "v", page_size=1, max_pages=2)
 
 
 if __name__ == "__main__":
