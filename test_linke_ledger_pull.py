@@ -4,10 +4,14 @@ from tempfile import NamedTemporaryFile, TemporaryDirectory
 from pathlib import Path
 import datetime as dt
 
-from linke_ledger_pull import atomic_json, database_url_from_environment, prune_evidence, pull_pages
+from linke_ledger_pull import atomic_json, database_url_from_environment, evidence_filename, prune_evidence, pull_pages
 
 
 class PaginationTests(unittest.TestCase):
+    def test_only_ended_business_days_keep_multiple_timestamped_versions(self):
+        detected=dt.datetime(2026,8,4,9,30,tzinfo=dt.timezone.utc)
+        self.assertEqual(evidence_filename('20260804','Nova-Indonesia',detected,dt.date(2026,8,4)),'20260804-Nova-Indonesia.json')
+        self.assertEqual(evidence_filename('20260803','Nova-Indonesia',detected,dt.date(2026,8,4)),'20260803-Nova-Indonesia-20260804T093000000000Z.json')
     def test_evidence_is_private_and_retention_only_removes_matching_old_files(self):
         with TemporaryDirectory() as root:
             directory=Path(root)/'evidence'

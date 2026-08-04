@@ -2,7 +2,7 @@
 
 The realtime ledger is provisional until the independent BI voice-room report agrees per SID.
 
-1. `linke_ledger_pull.py GUILD YYYYMMDD` reads every raw API page. Zero-value rows do not terminate pagination. It atomically archives response bodies and a checksum under the existing `state/` tree (`LINKE_EVIDENCE_DIR`, default `state/linky-ledger-evidence`) before the existing ledger upsert. Authorization headers, cookies and BI tickets are never persisted. The directory is mode `0700`, files are `0600`, and matching evidence files are retained for 14 days by default (`LINKE_EVIDENCE_RETENTION_DAYS`).
+1. `linke_ledger_pull.py GUILD YYYYMMDD` reads every raw API page. Zero-value rows do not terminate pagination. It atomically archives response bodies and a checksum under the existing `state/` tree (`LINKE_EVIDENCE_DIR`, default `state/linky-ledger-evidence`) before the existing ledger upsert. Current-day hourly calls replace one latest file; ended business days keep timestamped D+1/retry versions for investigation. Authorization headers, cookies and BI tickets are never persisted. The directory is mode `0700`, files are `0600`, and matching evidence files are retained for 14 days by default (`LINKE_EVIDENCE_RETENTION_DAYS`).
 2. After BI download, run the read-only audit:
 
    ```sh

@@ -103,6 +103,14 @@ def checksum(rows: list[dict[str, Any]], value_key: str) -> str:
     return hashlib.sha256(json.dumps(normalized, separators=(",", ":")).encode()).hexdigest()
 
 
+def evidence_filename(day: str, guild: str, detected_at: dt.datetime, today: dt.date | None = None) -> str:
+    business_date = dt.datetime.strptime(day, "%Y%m%d").date()
+    if business_date < (today or dt.datetime.now(dt.timezone.utc).date()):
+        stamp = detected_at.astimezone(dt.timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+        return f"{day}-{guild}-{stamp}.json"
+    return f"{day}-{guild}.json"
+
+
 def write_ledger(database_url: str, guild: str, day: str, streamer: list[dict[str, Any]],
                  room: list[dict[str, Any]]) -> int:
     import psycopg2
@@ -169,7 +177,8 @@ def main() -> int:
 
     streamer, streamer_pages = pull_pages(call, "/api/guild/streamer_stat", args.day, "total_earns")
     room, room_pages = pull_pages(call, "/api/guild/live_room_stat", args.day, "receive_diamonds")
-    detected_at = dt.datetime.now(dt.timezone.utc).isoformat()
+    detected_time = dt.datetime.now(dt.timezone.utc)
+    detected_at = detected_time.isoformat()
     evidence = {
         "schemaVersion": 1, "guild": args.guild, "businessDateUtc": args.day,
         "detectedAt": detected_at, "scanComplete": True,
@@ -178,7 +187,7 @@ def main() -> int:
                       "checksum": checksum(room, "receive_diamonds")},
         "rawResponses": raw_payloads,
     }
-    out = Path(args.evidence_dir) / f"{args.day}-{args.guild}.json"
+    out = Path(args.evidence_dir) / evidence_filename(args.day,args.guild,detected_time)
     atomic_json(out, evidence)
     prune_evidence(out.parent, args.evidence_retention_days)
     written = None
