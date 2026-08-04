@@ -55,6 +55,10 @@ def pull_pages(call: Callable[[str], dict[str, Any]], path: str, day: str, value
             # Keep the last occurrence, matching the ledger's established SID map semantics.
             positive_by_sid[sid] = row
         total = payload.get("total")
+        try:
+            numeric_total = int(total) if total is not None else None
+        except (TypeError, ValueError):
+            raise RuntimeError(f"Linky response total is invalid: page={page}")
         evidence.append({
             "page": page,
             "rawCount": len(items),
@@ -65,7 +69,7 @@ def pull_pages(call: Callable[[str], dict[str, Any]], path: str, day: str, value
         })
         if len(items) < page_size:
             break
-        if isinstance(total, (int, float)) and page * page_size >= int(total):
+        if numeric_total is not None and page * page_size >= numeric_total:
             break
     else:
         raise RuntimeError(f"Linky pagination exceeded safety cap: {max_pages}")

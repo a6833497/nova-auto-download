@@ -60,6 +60,20 @@ class PaginationTests(unittest.TestCase):
         self.assertEqual(evidence[1]["duplicatePositiveSidCount"], 1)
         self.assertEqual(evidence[1]["duplicatePositiveSids"], ["39348432"])
 
+    def test_string_total_stops_at_the_reported_last_page(self):
+        pages = {
+            1: {"items": [{"sid": str(i), "v": 1} for i in range(500)], "total": "501"},
+            2: {"items": [{"sid": "later", "v": 2}] * 500, "total": "501"},
+        }
+        calls = []
+        def call(path):
+            page = int(path.split("page_num=")[1].split("&")[0])
+            calls.append(page)
+            return pages[page]
+        rows, _evidence = pull_pages(call, "/x", "20260728", "v")
+        self.assertEqual(calls, [1, 2])
+        self.assertEqual(len(rows), 501)
+
 
 if __name__ == "__main__":
     unittest.main()
