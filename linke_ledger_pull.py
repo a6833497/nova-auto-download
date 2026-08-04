@@ -34,16 +34,44 @@ def database_url_from_environment() -> str | None:
 
 
 def pull_pages(call: Callable[[str], dict[str, Any]], path: str, day: str, value_key: str,
-               page_size: int = PAGE_SIZE, max_pages: int = 120) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+               page_size: int = PAGE_SIZE, max_pages: int = 120,
+               require_unique_sid: bool = False) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """Read every raw page; zero-value rows must never terminate pagination."""
     positive_by_sid: dict[str, dict[str, Any]] = {}
     evidence: list[dict[str, Any]] = []
+    seen_raw_sids: set[str] = set()
+    seen_response_checksums: dict[str, int] = {}
+    seen_sid_set_checksums: dict[str, int] = {}
+    reported_total: int | None = None
+    raw_count = 0
     for page in range(1, max_pages + 1):
         query = f"{path}?begin={day}&end={day}&page_num={page}&page_size={page_size}&type=0"
         payload = call(query)
         items = payload.get("items") or []
         if not isinstance(items, list):
             raise RuntimeError(f"Linky response items is not a list: page={page}")
+        raw_sids = [str(row.get("sid") or "").strip() for row in items]
+        if any(not sid for sid in raw_sids):
+            raise RuntimeError(f"Linky raw row has no SID: page={page}")
+        response_checksum = hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+        sid_set_checksum = hashlib.sha256(json.dumps(sorted(set(raw_sids)), separators=(",", ":")).encode()).hexdigest()
+        if response_checksum in seen_response_checksums:
+            raise RuntimeError(f"Linky repeated response page: page={page} repeats={seen_response_checksums[response_checksum]}")
+        if sid_set_checksum in seen_sid_set_checksums:
+            raise RuntimeError(f"Linky repeated SID set: page={page} repeats={seen_sid_set_checksums[sid_set_checksum]}")
+        if require_unique_sid:
+            page_sids: set[str] = set()
+            duplicate_sids: set[str] = set()
+            for sid in raw_sids:
+                if sid in page_sids or sid in seen_raw_sids:
+                    duplicate_sids.add(sid)
+                page_sids.add(sid)
+            if duplicate_sids:
+                raise RuntimeError(f"Linky duplicate raw SID: page={page} sid={sorted(duplicate_sids)[0]}")
+        seen_raw_sids.update(raw_sids)
+        seen_response_checksums[response_checksum] = page
+        seen_sid_set_checksums[sid_set_checksum] = page
+        raw_count += len(items)
         kept = [row for row in items if float(row.get(value_key) or 0) > 0]
         duplicate_sids: list[str] = []
         for row in kept:
@@ -56,9 +84,15 @@ def pull_pages(call: Callable[[str], dict[str, Any]], path: str, day: str, value
             positive_by_sid[sid] = row
         total = payload.get("total")
         try:
-            numeric_total = int(total) if total is not None else None
+            numeric_total = int(total)
         except (TypeError, ValueError):
             raise RuntimeError(f"Linky response total is invalid: page={page}")
+        if reported_total is None:
+            reported_total = numeric_total
+        elif numeric_total != reported_total:
+            raise RuntimeError(f"Linky response total changed: page={page}")
+        if raw_count > reported_total:
+            raise RuntimeError(f"Linky raw rows exceed reported total: page={page}")
         evidence.append({
             "page": page,
             "rawCount": len(items),
@@ -66,11 +100,13 @@ def pull_pages(call: Callable[[str], dict[str, Any]], path: str, day: str, value
             "reportedTotal": total,
             "duplicatePositiveSidCount": len(duplicate_sids),
             "duplicatePositiveSids": sorted(set(duplicate_sids)),
+            "responseChecksum": response_checksum,
+            "sidSetChecksum": sid_set_checksum,
         })
+        if raw_count == reported_total:
+            break
         if len(items) < page_size:
-            break
-        if numeric_total is not None and page * page_size >= numeric_total:
-            break
+            raise RuntimeError(f"Linky pagination ended before reported total: page={page}")
     else:
         raise RuntimeError(f"Linky pagination exceeded safety cap: {max_pages}")
     return list(positive_by_sid.values()), evidence
@@ -187,7 +223,7 @@ def main() -> int:
         return payload
 
     streamer, streamer_pages = pull_pages(call, "/api/guild/streamer_stat", args.day, "total_earns")
-    room, room_pages = pull_pages(call, "/api/guild/live_room_stat", args.day, "receive_diamonds")
+    room, room_pages = pull_pages(call, "/api/guild/live_room_stat", args.day, "receive_diamonds", require_unique_sid=True)
     detected_time = dt.datetime.now(dt.timezone.utc)
     detected_at = detected_time.isoformat()
     evidence = {
