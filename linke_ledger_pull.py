@@ -1,51 +1,18 @@
 #!/usr/bin/env python3
-"""Pull one Linky guild/day with complete pagination and auditable evidence."""
+"""Compatibility wrapper for explicit Linky guild/day ledger collection."""
 
 from __future__ import annotations
 
-import argparse
-import base64
 import datetime as dt
+import argparse
 import hashlib
-import hmac
 import json
-import os
 from pathlib import Path
-import tempfile
-import time
+import sys
 from typing import Any
-import urllib.request
 
-from linky_api_pagination import pull_pages
-
-
-def database_url_from_environment() -> str | None:
-    if os.getenv("DATABASE_URL"):
-        return os.environ["DATABASE_URL"]
-    env_path = Path(os.getenv("NOVA_API_ENV", "/home/ubuntu/nova-backend-current/api/.env"))
-    try:
-        for line in env_path.read_text(encoding="utf-8").splitlines():
-            if line.startswith("DATABASE_URL="):
-                return line.split("=", 1)[1].strip().strip('"').strip("'")
-    except OSError:
-        pass
-    return None
-
-
-def atomic_json(path: Path, value: Any) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    os.chmod(path.parent, 0o700)
-    fd, tmp = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            json.dump(value, handle, ensure_ascii=False, separators=(",", ":"))
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.chmod(tmp, 0o600)
-        os.replace(tmp, path)
-    finally:
-        if os.path.exists(tmp):
-            os.unlink(tmp)
+from linky_runtime import atomic_json, database_url_from_environment
+from linky_sync_runner import main as runner_main
 
 
 def prune_evidence(directory: Path, retention_days: int, today: dt.date | None = None) -> list[str]:
@@ -66,7 +33,7 @@ def prune_evidence(directory: Path, retention_days: int, today: dt.date | None =
 
 
 def checksum(rows: list[dict[str, Any]], value_key: str) -> str:
-    normalized = sorted((str(r.get("sid") or ""), str(r.get(value_key) or 0)) for r in rows)
+    normalized = sorted((str(row.get("sid") or ""), str(row.get(value_key) or 0)) for row in rows)
     return hashlib.sha256(json.dumps(normalized, separators=(",", ":")).encode()).hexdigest()
 
 
@@ -78,95 +45,29 @@ def evidence_filename(day: str, guild: str, detected_at: dt.datetime, today: dt.
     return f"{day}-{guild}.json"
 
 
-def write_ledger(database_url: str, guild: str, day: str, streamer: list[dict[str, Any]],
-                 room: list[dict[str, Any]]) -> int:
-    import psycopg2
-    from psycopg2.extras import execute_values
-
-    stat_date = dt.datetime.strptime(day, "%Y%m%d").date()
-    settled = stat_date < dt.datetime.now(dt.timezone.utc).date()
-    chat_by_sid = {int(row["sid"]): row for row in streamer}
-    room_by_sid = {int(row["sid"]): row for row in room}
-    values = []
-    for sid in sorted(set(chat_by_sid) | set(room_by_sid)):
-        chat = chat_by_sid.get(sid, {})
-        voice = room_by_sid.get(sid, {})
-        values.append((guild, sid, stat_date,
-            chat.get("chat_earns") or 0, chat.get("voice_call_earns") or 0,
-            chat.get("text_earns") or 0, chat.get("unlock_image_earns") or 0,
-            chat.get("task_earns") or 0, chat.get("other_earns") or 0,
-            voice.get("receive_diamonds") or 0, chat.get("online_time") or 0,
-            float(voice.get("on_mic_time") or 0), voice.get("new_fans") or 0,
-            chat.get("ten_minutes_reply_ratio") or 0, chat.get("new_level4_num") or 0, settled))
-    with psycopg2.connect(database_url) as connection:
-        with connection.cursor() as cursor:
-            cursor.execute("SELECT 1 FROM linke_streamer_daily WHERE stat_date=%s AND guild=%s AND settled=true LIMIT 1", (stat_date, guild))
-            locked = cursor.fetchone() is not None and (dt.datetime.now(dt.timezone.utc).date() - stat_date).days > 2
-            if locked:
-                raise RuntimeError(f"historical ledger is write-protected: {guild} {stat_date}")
-            execute_values(cursor, """INSERT INTO linke_streamer_daily
-              (guild,sid,stat_date,chat_earns,voice_call_earns,text_earns,unlock_image_earns,task_earns,other_earns,
-               room_diamonds,online_time,on_mic_time,new_fans,ten_min_reply,new_level4,settled) VALUES %s
-              ON CONFLICT (sid,stat_date) DO UPDATE SET
-               chat_earns=EXCLUDED.chat_earns,voice_call_earns=EXCLUDED.voice_call_earns,
-               text_earns=EXCLUDED.text_earns,unlock_image_earns=EXCLUDED.unlock_image_earns,
-               task_earns=EXCLUDED.task_earns,other_earns=EXCLUDED.other_earns,
-               room_diamonds=EXCLUDED.room_diamonds,online_time=EXCLUDED.online_time,
-               on_mic_time=EXCLUDED.on_mic_time,new_fans=EXCLUDED.new_fans,
-               ten_min_reply=EXCLUDED.ten_min_reply,new_level4=EXCLUDED.new_level4,
-               settled=EXCLUDED.settled,fetched_at=now()""", values)
-    return len(values)
-
-
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("guild")
-    parser.add_argument("day", help="UTC business date as YYYYMMDD")
-    parser.add_argument("--tokens", default=os.getenv("LINKE_GUILD_TOKENS", "guild-tokens.json"))
-    parser.add_argument("--evidence-dir", default=os.getenv("LINKE_EVIDENCE_DIR", "state/linky-ledger-evidence"))
-    parser.add_argument("--evidence-retention-days", type=int, default=int(os.getenv("LINKE_EVIDENCE_RETENTION_DAYS", "14")))
-    parser.add_argument("--dry-run", action="store_true", help="fetch and archive only; do not write the ledger")
-    args = parser.parse_args()
-    config = json.loads(Path(args.tokens).read_text(encoding="utf-8"))
-    guild = config["guilds"][args.guild]
-
-    raw_payloads: dict[str, list[dict[str, Any]]] = {}
-    def call(path: str) -> dict[str, Any]:
-        stamp = str(int(time.time() * 1000))
-        signature = base64.b64encode(hmac.new(guild["oauth_token_secret"].encode(), (path + "&" + stamp).encode(), hashlib.sha1).digest()).decode()
-        request = urllib.request.Request("https://api.linke.ai" + path, headers={
-            "X-Auth-Token": guild["oauth_token"], "X-Auth-Timestamp": stamp,
-            "X-Auth-Signature": signature, "X-App-Language": "en", "Country": "US",
-        })
-        payload = json.loads(urllib.request.urlopen(request, timeout=30).read())
-        raw_payloads.setdefault(path.split("?")[0], []).append(payload)
-        return payload
-
-    streamer, streamer_pages = pull_pages(call, "/api/guild/streamer_stat", args.day, "total_earns")
-    room, room_pages = pull_pages(call, "/api/guild/live_room_stat", args.day, "receive_diamonds", require_unique_sid=True)
-    detected_time = dt.datetime.now(dt.timezone.utc)
-    detected_at = detected_time.isoformat()
-    evidence = {
-        "schemaVersion": 1, "guild": args.guild, "businessDateUtc": args.day,
-        "detectedAt": detected_at, "scanComplete": True,
-        "streamer": {"pages": streamer_pages, "positiveRows": len(streamer), "checksum": checksum(streamer, "total_earns")},
-        "voiceRoom": {"pages": room_pages, "positiveRows": len(room), "amount": sum(float(r.get("receive_diamonds") or 0) for r in room),
-                      "checksum": checksum(room, "receive_diamonds")},
-        "rawResponses": raw_payloads,
-    }
-    out = Path(args.evidence_dir) / evidence_filename(args.day,args.guild,detected_time)
-    atomic_json(out, evidence)
-    prune_evidence(out.parent, args.evidence_retention_days)
-    written = None
-    if not args.dry_run:
-        database_url = database_url_from_environment()
-        if not database_url:
-            raise SystemExit("DATABASE_URL is required unless --dry-run is used")
-        written = write_ledger(database_url, args.guild, args.day, streamer, room)
-    summary = {k: evidence[k] for k in ("schemaVersion", "guild", "businessDateUtc", "scanComplete", "voiceRoom")}
-    summary["ledgerRowsWritten"] = written
-    print(json.dumps(summary, ensure_ascii=False))
-    return 0
+    parser.add_argument("business_date")
+    parser.add_argument("--tokens")
+    parser.add_argument("--evidence-dir")
+    parser.add_argument("--evidence-retention-days", type=int)
+    parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--force", action="store_true")
+    options = parser.parse_args(argv if argv is not None else sys.argv[1:])
+    args = ["--job-name", "linky-ledger-compat", "--mode", "target",
+        "--guild", options.guild, "--business-date", options.business_date]
+    if options.tokens:
+        args.extend(["--tokens", options.tokens])
+    if options.evidence_dir:
+        args.extend(["--evidence-dir", options.evidence_dir])
+    if options.evidence_retention_days is not None:
+        args.extend(["--evidence-retention-days", str(options.evidence_retention_days)])
+    if options.dry_run:
+        args.append("--dry-run")
+    if options.force:
+        args.append("--force")
+    return runner_main(args)
 
 
 if __name__ == "__main__":
