@@ -19,8 +19,14 @@ class TimoSyncRunnerContractTest(unittest.TestCase):
 
     def test_reconciles_before_publication(self):
         reconcile = RUNNER.index("reconcile-timo-display.ts")
-        publication = RUNNER.index("publish-daily-subject-metrics.ts")
+        publication = RUNNER.index("scripts/run-daily-publication.sh")
         self.assertLess(reconcile, publication)
+
+    def test_delegates_candidate_projection_and_switch_to_canonical_runner(self):
+        self.assertEqual(RUNNER.count("scripts/run-daily-publication.sh"), 1)
+        self.assertNotIn("src/scripts/publish-daily-subject-metrics.ts", RUNNER)
+        self.assertNotIn("src/scripts/rebuild-page-projections.ts", RUNNER)
+        self.assertNotIn("DELETE FROM dashboard_cache", RUNNER)
 
     def test_display_time_uses_exact_storage_identity_and_configured_database(self):
         self.assertIn("DATABASE_URL is required", DISPLAY_TIME)

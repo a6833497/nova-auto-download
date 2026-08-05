@@ -50,31 +50,8 @@ done
 # current_subject_owner is published by the canonical six-sheet ownership
 # chain. Timo source refresh must consume that projection, not rebuild a second
 # ownership system from the external roster.
-npx tsx src/scripts/publish-daily-subject-metrics.ts \
+# Publication is a single canonical candidate -> projection -> atomic switch
+# workflow. The runner owns candidate failure marking and rollback; this source
+# sync must not recreate an older publication path around it.
+timeout 45m bash scripts/run-daily-publication.sh \
   --version="timo-${date_from}-${date_to}-$(date +%s)"
-
-release_id=$(psql "$DATABASE_URL" -qAt -c \
-  "SELECT id FROM data_publication_release WHERE domain='DAILY_SUBJECT_METRICS' AND status='PUBLISHED'")
-psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -q -c "DELETE FROM dashboard_cache;"
-set +e
-timeout 1800 ./node_modules/.bin/tsx src/scripts/rebuild-page-projections.ts
-page_exit=$?
-set -e
-if [[ "$page_exit" -ne 0 ]]; then
-  psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -q -c \
-    "UPDATE data_publication_release SET metadata=metadata||jsonb_build_object('pageProjectionState','FAILED','pageProjectionError','timo page_exit=$page_exit') WHERE id=$release_id AND status='PUBLISHED';"
-  exit "$page_exit"
-fi
-set +e
-timeout 1800 ./node_modules/.bin/tsx src/scripts/rebuild-core-report-snapshots.ts
-core_report_exit=$?
-set -e
-if [[ "$core_report_exit" -ne 0 ]]; then
-  psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -q -c \
-    "UPDATE data_publication_release SET metadata=metadata||jsonb_build_object('pageProjectionState','FAILED','pageProjectionError','timo core_report_exit=$core_report_exit') WHERE id=$release_id AND status='PUBLISHED';"
-  exit "$core_report_exit"
-fi
-psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -q -c \
-  "UPDATE data_publication_release SET metadata=metadata||'{\"pageProjectionState\":\"COMPLETE\"}'::jsonb WHERE id=$release_id AND status='PUBLISHED';
-   UPDATE report_meta SET value=(CAST(value AS INTEGER)+1)::TEXT,updatedat=CURRENT_TIMESTAMP WHERE key='dataVersion';
-   UPDATE report_meta SET value='$(date -u +%Y-%m-%dT%H:%M:%S.000Z)',updatedat=CURRENT_TIMESTAMP WHERE key='lastUpdatedAt';"
