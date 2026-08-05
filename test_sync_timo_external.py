@@ -5,6 +5,7 @@ import unittest
 ROOT = pathlib.Path(__file__).resolve().parent
 RUNNER = (ROOT / "sync-timo-external.sh").read_text()
 DAILY = (ROOT / "sync-timo-external-daily.sh").read_text()
+DISPLAY_TIME = (ROOT / "rebuild_display_time.py").read_text()
 
 
 class TimoSyncRunnerContractTest(unittest.TestCase):
@@ -20,6 +21,14 @@ class TimoSyncRunnerContractTest(unittest.TestCase):
         reconcile = RUNNER.index("reconcile-timo-display.ts")
         publication = RUNNER.index("publish-daily-subject-metrics.ts")
         self.assertLess(reconcile, publication)
+
+    def test_display_time_uses_exact_storage_identity_and_configured_database(self):
+        self.assertIn("DATABASE_URL is required", DISPLAY_TIME)
+        self.assertNotIn("postgresql://", DISPLAY_TIME)
+        self.assertIn("external_timo_revenue_metric_snapshot s", DISPLAY_TIME)
+        self.assertIn("external_timo_revenue_daily_staging t", DISPLAY_TIME)
+        self.assertEqual(DISPLAY_TIME.count("d.raw_guild=trim("), 2)
+        self.assertNotIn("ILIKE", DISPLAY_TIME)
 
     def test_daily_wrapper_uses_the_single_runner(self):
         self.assertIn("TIMO_SYNC_WINDOW=daily", DAILY)

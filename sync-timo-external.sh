@@ -28,6 +28,9 @@ case "$SYNC_WINDOW" in
 esac
 
 cd "$API_DIR"
+set -a
+source .env >/dev/null 2>&1
+set +a
 # Idle I/O priority and a positive nice value keep this non-urgent import from
 # competing with interactive API traffic. The timeout prevents a stuck source
 # request from accumulating into the next scheduled run.
@@ -50,9 +53,6 @@ done
 npx tsx src/scripts/publish-daily-subject-metrics.ts \
   --version="timo-${date_from}-${date_to}-$(date +%s)"
 
-set -a
-source .env >/dev/null 2>&1
-set +a
 release_id=$(psql "$DATABASE_URL" -qAt -c \
   "SELECT id FROM data_publication_release WHERE domain='DAILY_SUBJECT_METRICS' AND status='PUBLISHED'")
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -q -c "DELETE FROM dashboard_cache;"
