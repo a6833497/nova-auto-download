@@ -11,12 +11,18 @@ from linky_api_pagination import pull_pages
 class PaginationTests(unittest.TestCase):
     def test_all_production_callers_share_or_explicitly_block_pagination(self):
         root=Path(__file__).parent
-        self.assertIn('from linky_api_pagination import pull_pages',(root/'linke_ledger_pull.py').read_text())
-        self.assertIn('from linky_api_pagination import pull_pages',(root/'linke_live_pull.py').read_text())
+        fetch=(root/'linky_fetch.py').read_text()
+        self.assertIn('pull_pages',fetch)
+        for name in ('linke_ledger_pull.py','linke_live_pull.py','linky_consumers.py'):
+            source=(root/name).read_text()
+            self.assertNotIn('urllib.request',source)
+            self.assertNotIn('pull_pages(',source)
+        self.assertIn('from linky_sync_runner import main as runner_main',(root/'linke_ledger_pull.py').read_text())
+        self.assertIn('from linky_sync_runner import main as runner_main',(root/'linke_live_pull.py').read_text())
         self.assertIn('is retired and must not enter a production execution path',(root/'backfill_voice_call.py').read_text())
 
     def test_existing_conflict_does_not_reassign_a_sid_to_another_guild(self):
-        source=Path(__file__).with_name('linke_ledger_pull.py').read_text()
+        source=Path(__file__).with_name('linky_consumers.py').read_text()
         conflict=source.split('ON CONFLICT (sid,stat_date) DO UPDATE SET',1)[1]
         self.assertNotIn('guild=EXCLUDED.guild',conflict)
 
@@ -48,7 +54,7 @@ class PaginationTests(unittest.TestCase):
         def call(path):
             page = int(path.split("page_num=")[1].split("&")[0])
             return pages[page]
-        rows, evidence = pull_pages(call, "/voice", "20260728", "receive_diamonds")
+        rows, evidence = pull_pages(call, "/voice", "20260728", "receive_diamonds", page_size=500)
         self.assertEqual(len(rows), 500)
         self.assertEqual(rows[-1]["sid"], "later")
         self.assertEqual([x["rawCount"] for x in evidence], [500, 1])
@@ -62,7 +68,7 @@ class PaginationTests(unittest.TestCase):
             page = int(path.split("page_num=")[1].split("&")[0])
             return pages[page]
         with self.assertRaisesRegex(RuntimeError, "duplicate raw SID"):
-            pull_pages(call, "/x", "20260728", "v")
+            pull_pages(call, "/x", "20260728", "v", page_size=500)
 
     def test_total_change_and_raw_count_overflow_fail(self):
         pages = {1: {"items": [{"sid": "1", "v": 1}], "total": 2},
@@ -82,7 +88,7 @@ class PaginationTests(unittest.TestCase):
             page = int(path.split("page_num=")[1].split("&")[0])
             calls.append(page)
             return pages[page]
-        rows, _evidence = pull_pages(call, "/x", "20260728", "v")
+        rows, _evidence = pull_pages(call, "/x", "20260728", "v", page_size=500)
         self.assertEqual(calls, [1, 2])
         self.assertEqual(len(rows), 501)
 
@@ -107,7 +113,13 @@ class PaginationTests(unittest.TestCase):
             paths.append(path)
             return {"items": [], "total": 0}
         pull_pages(call, "/voice", "20260728", "v")
-        self.assertEqual(paths, ["/voice?begin=20260728&end=20260728&page_num=1&page_size=500&type=0"])
+        self.assertEqual(paths, ["/voice?begin=20260728&end=20260728&page_num=1&page_size=5000&type=0"])
+
+    def test_one_authoritative_page_size_can_be_explicitly_overridden(self):
+        paths = []
+        pull_pages(lambda path: paths.append(path) or {"items": [], "total": 0},
+            "/voice", "20260728", "v", page_size=5000)
+        self.assertEqual(paths, ["/voice?begin=20260728&end=20260728&page_num=1&page_size=5000&type=0"])
 
     def test_max_page_cap_fails_closed(self):
         def call(path):
