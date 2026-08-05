@@ -212,6 +212,15 @@ if [ "$API_SUCCESS" -eq 0 ]; then
   fi
 fi
 
+# ── Step 3.0.1: 语音房 API 暂存与 BI 日终核对 ─────────────
+# 在现有下载链和同步锁内运行；只生成证据，不修改日账本或 publication。
+log "🔎 Step 3.0.1: 核对 Linky 语音房 BI..."
+if ! timeout 180 python3 "$SCRIPT_DIR/linky_voice_bi_batch.py" --date "$DATE" \
+    --staging-root "/home/ubuntu/nova-data/upload-staging/daily" \
+    --evidence-dir "$SCRIPT_DIR/state/linky-voice-audit"; then
+  log "⚠️ 语音房 BI 核对程序失败；不生成虚假已核对状态"
+fi
+
 # 获取导入记录数（后续健康检查使用）
 RECORD_COUNT=$($PG \
   "SELECT COUNT(*) FROM metrics_daily
