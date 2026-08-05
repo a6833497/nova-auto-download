@@ -102,6 +102,9 @@ class FetchGuildDayTest(unittest.TestCase):
         with self.assertRaisesRegex(FetchScanError, "differs from total_item"):
             fetch_guild_day("Nova", "20260804", call=mutable,
                 utc_today=dt.date(2026, 8, 5))
+        with self.assertRaisesRegex(FetchScanError, "differs from total_item"):
+            fetch_guild_day("Nova", "20260806", call=mutable,
+                utc_today=dt.date(2026, 8, 5))
 
     def test_core_failure_returns_no_partial_bundle_and_does_not_memoize(self):
         calls = []

@@ -273,7 +273,7 @@ def fetch_guild_day(
     """
     parsed_date = dt.datetime.strptime(business_date, "%Y%m%d").date()
     effective_today = utc_today or dt.datetime.now(dt.timezone.utc).date()
-    require_summary = parsed_date < effective_today
+    require_summary = parsed_date != effective_today
     resolved_page_size = configured_page_size(page_size)
     api_call = call or _authenticated_call(guild, tokens_path)
     def bounded_call(path: str) -> dict[str, Any]:
