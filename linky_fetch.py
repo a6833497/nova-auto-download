@@ -120,7 +120,7 @@ def new_request_scope() -> RequestScope:
 
 
 def _scan(call: LinkyCall, endpoint: str, day: str, value_key: str,
-          page_size: int) -> tuple[tuple[dict[str, Any], ...], EndpointScan]:
+          page_size: int, require_summary: bool = True) -> tuple[tuple[dict[str, Any], ...], EndpointScan]:
     started = time.monotonic()
     requests = 0
     starting_attempts = int(getattr(call, "attempt_count", 0))
@@ -141,7 +141,7 @@ def _scan(call: LinkyCall, endpoint: str, day: str, value_key: str,
         return payload
     try:
         rows, pages = pull_pages(observed_call, endpoint, day, value_key,
-            page_size=page_size, require_unique_sid=True, require_summary=True)
+            page_size=page_size, require_unique_sid=True, require_summary=require_summary)
     except Exception as error:
         actual_requests = int(getattr(call, "attempt_count", starting_attempts + requests)) - starting_attempts
         retries = int(getattr(call, "retry_count", starting_retries)) - starting_retries
@@ -272,6 +272,8 @@ def fetch_guild_day(
     identical reads are performed at most once inside that scheduling cycle.
     """
     parsed_date = dt.datetime.strptime(business_date, "%Y%m%d").date()
+    effective_today = utc_today or dt.datetime.now(dt.timezone.utc).date()
+    require_summary = parsed_date != effective_today
     resolved_page_size = configured_page_size(page_size)
     api_call = call or _authenticated_call(guild, tokens_path)
     def bounded_call(path: str) -> dict[str, Any]:
@@ -292,13 +294,15 @@ def fetch_guild_day(
         return replace(request_scope[cache_key], bundle_reused=True)
 
     streamer_rows, streamer_scan = _scan(
-        bounded_call, "/api/guild/streamer_stat", business_date, "total_earns", resolved_page_size)
+        bounded_call, "/api/guild/streamer_stat", business_date, "total_earns",
+        resolved_page_size, require_summary=require_summary)
     room_rows, room_scan = _scan(
-        bounded_call, "/api/guild/live_room_stat", business_date, "receive_diamonds", resolved_page_size)
+        bounded_call, "/api/guild/live_room_stat", business_date, "receive_diamonds",
+        resolved_page_size, require_summary=require_summary)
 
     online_sids: frozenset[int] = frozenset()
     online_scan: EndpointScan | None = None
-    if parsed_date == (utc_today or dt.datetime.now(dt.timezone.utc).date()):
+    if parsed_date == effective_today:
         online_sids, online_scan = _online_anchors(bounded_call, resolved_page_size)
 
     bundle = FetchBundle(
