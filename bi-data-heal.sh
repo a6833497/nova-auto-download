@@ -20,7 +20,6 @@ LOG=/tmp/bi-heal.log
 NOTIFY=/home/ubuntu/nova-auto-download/feishu-notify.py
 DAILY_SYNC=/home/ubuntu/nova-auto-download/daily-sync.sh
 ATTEMPT_FILE=/tmp/bi-heal-attempts.txt
-TOTAL_THRESHOLD=3000
 GUILD_DROP_RATIO=0.5
 
 PSQL_BIN='PGPASSWORD=Nova2026pg! psql -U nova_app -h localhost -d nova_dashboard -t -A'
@@ -45,15 +44,13 @@ TODAY=$(TZ=Asia/Shanghai date +%Y-%m-%d)
 
 # ── 检查 1：总量
 TOTAL_COUNT=$(run_sql "SELECT COUNT(*) FROM metrics_daily WHERE TO_CHAR(date AT TIME ZONE 'Asia/Shanghai', 'YYYY-MM-DD') = '$DATE_YESTERDAY';" | tr -d ' ')
-log "[heal] 检查 $DATE_YESTERDAY 总量: ${TOTAL_COUNT:-0} 行 (阈值 $TOTAL_THRESHOLD)"
+log "[heal] 检查 $DATE_YESTERDAY 总量: ${TOTAL_COUNT:-0} 行（仅记录，不使用固定行数判错）"
 
 NEEDS_HEAL=0
 HEAL_REASON=""
 
-if [ "${TOTAL_COUNT:-0}" -lt "$TOTAL_THRESHOLD" ]; then
-  NEEDS_HEAL=1
-  HEAL_REASON="总量 $TOTAL_COUNT < $TOTAL_THRESHOLD"
-fi
+# 总行数会随直属范围、活跃人数和公会规模自然变化，固定 3000 会制造每日误报。
+# 是否自愈只依据公会缺失/公会级异常骤降；正式发布另由 data-quality-gate 校验。
 
 # ── 检查 2：公会粒度（用 stdin 喂 SQL 避免引号转义）
 GUILD_DROPS=$(run_sql_stdin <<SQL
@@ -153,12 +150,12 @@ ORDER BY y.alias;
 SQL
 )
 
-if [ "${TOTAL_COUNT_AFTER:-0}" -ge "$TOTAL_THRESHOLD" ] && [ -z "$GUILD_DROPS_AFTER" ]; then
+if [ "${TOTAL_COUNT_AFTER:-0}" -gt 0 ] && [ -z "$GUILD_DROPS_AFTER" ]; then
   python3 "$NOTIFY" "✅ BI 数据自愈成功
 日期: $DATE_YESTERDAY
 现行数: ${TOTAL_COUNT_AFTER} 行（总量+全部公会齐）
 原因: $HEAL_REASON
-本次第 $ATTEMPTS 次尝试" > /dev/null 2>&1
+本次第 $ATTEMPTS 次尝试" --level P2 --source bi-heal --key "heal-success-$DATE_YESTERDAY" --channel digest > /dev/null 2>&1
   log "[heal] ✅ 自愈成功（总量+公会粒度均通过）"
   rm -f "$ATTEMPT_FILE"
   exit 0
@@ -189,7 +186,7 @@ if [ "${ATTEMPTS:-0}" -ge 2 ] && [ "$CURRENT_HOUR_INT" -ge 17 ]; then
 2) tail -50 /home/ubuntu/nova-auto-download/sync.log 看下载错误（找 ERR_ABORTED）
 3) 看 /tmp/bi-heal.log 完整自愈日志
 4) BI 网站可达性 + accessTicket 是否过期
-9 个报表 idx：0印尼1 1印尼2 2巴西1 3巴西2 4巴西3 5巴西4 6土耳其1 7西语1 8西语2" > /dev/null 2>&1
+9 个报表 idx：0印尼1 1印尼2 2巴西1 3巴西2 4巴西3 5巴西4 6土耳其1 7西语1 8西语2" --level P0 --source bi-heal --key "heal-fail-$DATE_YESTERDAY" > /dev/null 2>&1
 elif [ "${ATTEMPTS:-0}" -ge 2 ]; then
   log "[heal] ⏰ 连续 $ATTEMPTS 次失败但当前 ${CURRENT_HOUR}:00 < 17:00（BI 最后一次重试还没到），暂不发 critical 等 17:00 后重试"
 fi

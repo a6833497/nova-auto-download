@@ -16,7 +16,7 @@ import fs from "fs";
 import path from "path";
 
 // ========== 配置 ==========
-const REPORTS = [
+const ALL_REPORTS = [
   { name: "印尼1-Nova",     id: "d67f5126-4e68-47a3-bf5a-4b884866cb5a", ticket: "644babb5-f5d5-45a9-863d-cb7ba7cab030" },
   { name: "印尼2-Carote",   id: "bae08b94-8dad-4691-a7ca-9783de160a39", ticket: "c5e15c05-565c-4aa5-859c-fe2c93910c44" },
   { name: "巴西1-Nova",     id: "6d33fdf8-9236-455b-be7b-4ff6ea04dabe", ticket: "5fe5b405-3302-4fe3-a89a-d657861b9459" },
@@ -28,6 +28,8 @@ const REPORTS = [
   { name: "西语2-Evian",    id: "1fca6b36-5fa6-4906-906d-9495e60f5fe1", ticket: "248e5488-a1ab-42c5-8104-aee77e6565b9" },
   { name: "印尼3-宝石",     id: "2f802df6-2db1-4ebd-bd6c-0d663d5e0a3f", ticket: "a0f65fad-643c-4225-aa66-de1ae2527ab2" },
 ];
+const reportFilter = (process.env.BI_REPORT_FILTER || '').split(',').map(s => s.trim()).filter(Boolean);
+const REPORTS = reportFilter.length ? ALL_REPORTS.filter(r => reportFilter.includes(r.name)) : ALL_REPORTS;
 
 // 需要下载的tab（组件名包含这些关键词的）
 const TARGET_TABS = [
@@ -40,7 +42,7 @@ const TARGET_TABS = [
   "语音房数据",
 ];
 
-const POLL_TIMEOUT_MS = 120000;
+const POLL_TIMEOUT_MS = 180000; // 2026-05-28: 120s→180s，大公会主表高峰期生成慢会超时丢表(5/13 教训)
 const POLL_INTERVAL_MS = 2000;
 
 const args = process.argv.slice(2);
