@@ -1,6 +1,9 @@
+import json
+import tempfile
 import unittest
+from pathlib import Path
 
-from linky_voice_bi_apply import targets_from_evidence
+from linky_voice_bi_apply import load_evidence, targets_from_evidence
 
 
 def evidence(changed):
@@ -31,6 +34,15 @@ class VoiceBiApplyTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "invalid voice amount"):
             targets_from_evidence([evidence([
                 {"identity": "Nova-Indonesia|10", "ledger": 2, "bi": -1, "delta": -3}])])
+
+    def test_waiting_evidence_is_a_safe_noop(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "2026-08-03-Nova-Indonesia.json"
+            path.write_text(json.dumps({"schemaVersion": 2, "scanComplete": True,
+                "status": "WAITING_BI", "businessDate": "2026-08-03",
+                "formalGuild": "印尼1语音房", "sourceGuilds": ["Nova-Indonesia"]}))
+            loaded = load_evidence(Path(directory), "2026-08-03")
+            self.assertEqual(targets_from_evidence(loaded), [])
 
 
 if __name__ == "__main__":

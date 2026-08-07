@@ -114,7 +114,7 @@ def build_plan(cursor: Any, day: str, evidence: list[dict[str, Any]]) -> dict[st
     return {"schemaVersion": SCHEMA_VERSION, "businessDate": day,
         "evidence": [{"path": item["_path"], "checksum": item["_checksum"],
             "formalGuild": item["formalGuild"], "sourceGuilds": item["sourceGuilds"],
-            "ledgerAmount": item["ledgerAmount"], "biAmount": item["biAmount"]} for item in evidence],
+            "ledgerAmount": item.get("ledgerAmount"), "biAmount": item.get("biAmount")} for item in evidence],
         "updateCount": len(updates), "insertCount": len(inserts), "changes": serializable,
         "checksum": canonical_checksum(serializable)}
 
