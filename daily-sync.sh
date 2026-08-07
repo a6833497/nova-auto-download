@@ -231,6 +231,22 @@ if ! timeout 180 python3 "$SCRIPT_DIR/linky_voice_bi_batch.py" --date "$DATE" \
   log "⚠️ 语音房 BI 核对程序失败；不生成虚假已核对状态"
 fi
 
+# 已结束业务日以语音房主播行为数据为最终事实。复用同一证据、同一日账本和
+# 全局数据写锁受控落账；每次写入前生成0600快照，失败即停止后续publication。
+log "🔐 Step 3.0.2: 应用 Linky 语音房 BI 最终事实..."
+if ! timeout 180 python3 "$SCRIPT_DIR/linky_voice_bi_apply.py" --date "$DATE" \
+    --evidence-dir "$SCRIPT_DIR/state/linky-voice-audit" \
+    --snapshot-dir "$SCRIPT_DIR/state/linky-voice-repair" --apply; then
+  log "❌ 语音房 BI 最终事实落账失败；停止后续publication"
+  exit 68
+fi
+if ! timeout 180 python3 "$SCRIPT_DIR/linky_voice_bi_batch.py" --date "$DATE" \
+    --staging-root "/home/ubuntu/nova-data/upload-staging/daily" \
+    --evidence-dir "$SCRIPT_DIR/state/linky-voice-audit"; then
+  log "❌ 语音房 BI 落账后复核失败；停止后续publication"
+  exit 68
+fi
+
 # 获取导入记录数（后续健康检查使用）
 RECORD_COUNT=$($PG \
   "SELECT COUNT(*) FROM metrics_daily
