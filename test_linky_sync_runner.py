@@ -162,9 +162,13 @@ class LinkyRunnerTests(unittest.TestCase):
         self.assertEqual(0, code)
         self.assertEqual(["Nova-Indonesia"], cycle.call_args.kwargs["guilds"])
 
-    def test_daily_sync_only_runs_bi_audit_not_linky_fetch(self):
+    def test_daily_sync_reuses_bi_finality_chain_with_fourteen_day_lookback(self):
         source = Path("daily-sync.sh").read_text()
         self.assertIn("linky_voice_bi_batch.py", source)
+        self.assertIn("linky_voice_bi_apply.py", source)
+        self.assertIn('LINKY_VOICE_LOOKBACK_DAYS:-14', source)
+        self.assertIn('while IFS= read -r VOICE_DATE', source)
+        self.assertIn('--date "$VOICE_DATE"', source)
         self.assertNotIn("linky_sync_runner.py", source)
         self.assertNotIn("linke_ledger_pull.py", source)
 

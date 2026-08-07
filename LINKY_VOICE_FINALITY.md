@@ -10,6 +10,9 @@
   - 印尼3语音房：`Permata-Indonesia` ↔ BI `Permata`
 - `daily-sync.sh` 在现有下载和写锁内调用 `linky_voice_bi_batch.py`，只原子生成0600证据，
   不写 `linke_streamer_daily`、历史收益或 publication。
+- 同一 `daily-sync.sh` 默认回看目标日及前13天，逐日复用
+  `linky_voice_bi_batch.py` → `linky_voice_bi_apply.py` → `linky_voice_bi_batch.py`。BI未到保持
+  `WAITING_BI`，已核对日期幂等零修改跳过；不新增同步器、cron、表或publication。
 - 状态只有 `WAITING_BI`、`BI_VERIFIED`、`BI_MISMATCH`。后端只校验证据并返回，前端不推导状态。
 
 ## 唯一采集与闭日事实
