@@ -222,30 +222,50 @@ if [ "$API_SUCCESS" -eq 0 ]; then
   fi
 fi
 
-# ── Step 3.0.1: 语音房 API 暂存与 BI 日终核对 ─────────────
-# 在现有下载链和同步锁内运行；只生成证据，不修改日账本或 publication。
-log "🔎 Step 3.0.1: 核对 Linky 语音房 BI..."
-if ! timeout 180 python3 "$SCRIPT_DIR/linky_voice_bi_batch.py" --date "$DATE" \
-    --staging-root "/home/ubuntu/nova-data/upload-staging/daily" \
-    --evidence-dir "$SCRIPT_DIR/state/linky-voice-audit"; then
-  log "⚠️ 语音房 BI 核对程序失败；不生成虚假已核对状态"
+# ── Step 3.0.1: 语音房 API 暂存与 BI 日终收口 ────────────
+# 复用现有证据、应用器、日账本和全局写锁，每日回看目标日及前13天。
+# BI未到保持WAITING_BI；已BI_VERIFIED的日期幂等零修改跳过；写入前仍生成0600快照。
+VOICE_LOOKBACK_DAYS="${LINKY_VOICE_LOOKBACK_DAYS:-14}"
+if ! [[ "$VOICE_LOOKBACK_DAYS" =~ ^[0-9]+$ ]] || [ "$VOICE_LOOKBACK_DAYS" -lt 1 ] || [ "$VOICE_LOOKBACK_DAYS" -gt 31 ]; then
+  log "❌ LINKY_VOICE_LOOKBACK_DAYS必须为1到31之间的整数"
+  exit 68
+fi
+VOICE_DATES=$(python3 - "$DATE" "$VOICE_LOOKBACK_DAYS" <<'PY'
+import datetime as dt
+import sys
+
+anchor = dt.date.fromisoformat(sys.argv[1])
+days = int(sys.argv[2])
+print("\n".join((anchor - dt.timedelta(days=offset)).isoformat() for offset in range(days)))
+PY
+)
+if [ $? -ne 0 ] || [ -z "$VOICE_DATES" ]; then
+  log "❌ 无法生成语音房 BI 回看日期"
+  exit 68
 fi
 
-# 已结束业务日以语音房主播行为数据为最终事实。复用同一证据、同一日账本和
-# 全局数据写锁受控落账；每次写入前生成0600快照，失败即停止后续publication。
-log "🔐 Step 3.0.2: 应用 Linky 语音房 BI 最终事实..."
-if ! timeout 180 python3 "$SCRIPT_DIR/linky_voice_bi_apply.py" --date "$DATE" \
-    --evidence-dir "$SCRIPT_DIR/state/linky-voice-audit" \
-    --snapshot-dir "$SCRIPT_DIR/state/linky-voice-repair" --apply; then
-  log "❌ 语音房 BI 最终事实落账失败；停止后续publication"
-  exit 68
-fi
-if ! timeout 180 python3 "$SCRIPT_DIR/linky_voice_bi_batch.py" --date "$DATE" \
-    --staging-root "/home/ubuntu/nova-data/upload-staging/daily" \
-    --evidence-dir "$SCRIPT_DIR/state/linky-voice-audit"; then
-  log "❌ 语音房 BI 落账后复核失败；停止后续publication"
-  exit 68
-fi
+log "🔎 Step 3.0.1: 收口 Linky 语音房 BI（${VOICE_LOOKBACK_DAYS}日回看）..."
+while IFS= read -r VOICE_DATE; do
+  log "  语音房 BI: $VOICE_DATE"
+  if ! timeout 180 python3 "$SCRIPT_DIR/linky_voice_bi_batch.py" --date "$VOICE_DATE" \
+      --staging-root "/home/ubuntu/nova-data/upload-staging/daily" \
+      --evidence-dir "$SCRIPT_DIR/state/linky-voice-audit"; then
+    log "❌ 语音房 BI 核对失败（$VOICE_DATE）；停止后续publication"
+    exit 68
+  fi
+  if ! timeout 180 python3 "$SCRIPT_DIR/linky_voice_bi_apply.py" --date "$VOICE_DATE" \
+      --evidence-dir "$SCRIPT_DIR/state/linky-voice-audit" \
+      --snapshot-dir "$SCRIPT_DIR/state/linky-voice-repair" --apply; then
+    log "❌ 语音房 BI 最终事实落账失败（$VOICE_DATE）；停止后续publication"
+    exit 68
+  fi
+  if ! timeout 180 python3 "$SCRIPT_DIR/linky_voice_bi_batch.py" --date "$VOICE_DATE" \
+      --staging-root "/home/ubuntu/nova-data/upload-staging/daily" \
+      --evidence-dir "$SCRIPT_DIR/state/linky-voice-audit"; then
+    log "❌ 语音房 BI 落账后复核失败（$VOICE_DATE）；停止后续publication"
+    exit 68
+  fi
+done <<< "$VOICE_DATES"
 
 # 获取导入记录数（后续健康检查使用）
 RECORD_COUNT=$($PG \
