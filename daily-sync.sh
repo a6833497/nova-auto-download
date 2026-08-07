@@ -428,12 +428,21 @@ fi
 # ── Step 3.2.2: 从权威归属名单自动补齐运营登录账号 ──────────
 # 只新增，不因单日源数据缺失删除或停用已有账号。
 log "🔐 Step 3.2.2: 自动补齐新运营账号..."
-DEFAULT_NEW_AGENT_PASSWORD="nova2026" timeout 120 npx tsx src/scripts/sync-authoritative-agent-accounts.ts 2>&1 | tail -12
-ACCOUNT_SYNC_EXIT=${PIPESTATUS[0]}
-if [ "$ACCOUNT_SYNC_EXIT" -eq 0 ]; then
-  log "  ✅ 运营账号同步完成"
+ACCOUNT_SYNC_ENV="/home/ubuntu/.config/nova/agent-account-sync.env"
+if [ -f "$ACCOUNT_SYNC_ENV" ] && [ "$(stat -c '%a' "$ACCOUNT_SYNC_ENV")" = "600" ]; then
+  set -a
+  source "$ACCOUNT_SYNC_ENV" >/dev/null 2>&1
+  set +a
+  timeout 120 npx tsx src/scripts/sync-authoritative-agent-accounts.ts 2>&1 | tail -12
+  ACCOUNT_SYNC_EXIT=${PIPESTATUS[0]}
+  unset DEFAULT_NEW_AGENT_PASSWORD
+  if [ "$ACCOUNT_SYNC_EXIT" -eq 0 ]; then
+    log "  ✅ 运营账号同步完成"
+  else
+    log "  ❌ 运营账号同步异常 (exit=$ACCOUNT_SYNC_EXIT)，已有账号不受影响"
+  fi
 else
-  log "  ❌ 运营账号同步异常 (exit=$ACCOUNT_SYNC_EXIT)，已有账号不受影响"
+  log "  ❌ 运营账号同步安全配置缺失或权限不是600；已有账号不受影响"
 fi
 
 # ── Step 3.3: 飞书注册目标同步 ────────────────────────────
