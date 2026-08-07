@@ -24,7 +24,7 @@
 set -o pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-API_DIR="/home/ubuntu/nova-dashboard-deploy-final/api"
+API_DIR="/home/ubuntu/nova-backend-current/api"
 export PGPASSWORD="Nova2026pg!"
 PG="psql -h 127.0.0.1 -U nova_app -d nova_dashboard -tAc"
 
@@ -52,7 +52,7 @@ if [ -f "$LOCK_FILE" ]; then
   OLD_PID=$(cat "$LOCK_FILE" 2>/dev/null)
   if [ -n "$OLD_PID" ] && kill -0 "$OLD_PID" 2>/dev/null; then
     log "❌ 另一个同步进程正在运行 (PID=$OLD_PID)，退出"
-    exit 0
+    exit 75  # 2026-05-28: 原 exit 0 会让 bi-data-heal 误判"重下载成功"；非0=被锁挡住没真跑
   else
     log "⚠️ 发现过期锁文件 (PID=$OLD_PID 已不存在)，清理"
     rm -f "$LOCK_FILE"
@@ -102,7 +102,7 @@ if [ -z "$MISSING_REPORTS" ]; then
 else
   log "📡 Step 0.5: 缺公会[$MISSING_REPORTS]，触发 API 下载..."
   cd "$SCRIPT_DIR"
-  timeout 600 node api-download.mjs "$DATE" 2>&1 | tail -10
+  timeout 1500 node api-download.mjs "$DATE" 2>&1 | tail -10  # 2026-05-28: 600s→1500s，5/13 实测下载需 1021s 被 600s 砍断丢表
   API_EXIT=$?
 
   pkill -f chromium 2>/dev/null
@@ -126,6 +126,15 @@ else
 fi
 
 if [ "$API_SUCCESS" -eq 1 ]; then
+  # 发布门禁：不能再以“文件存在/文件够大”代替正确性证明。
+  # 必须同时证明报表类型、业务日期、公会和核心字段正确，失败即隔离，不覆盖正式库。
+  QUALITY_JSON="$DOWNLOAD_DIR/_quality_gate.json"
+  log "🛡️ Step 0.8: BI 文件发布门禁..."
+  if ! python3 "$SCRIPT_DIR/data-quality-gate.py" "$DOWNLOAD_DIR" "$DATE" --json-out "$QUALITY_JSON" >/tmp/bi-quality-gate.log 2>&1; then
+    log "❌ BI 发布门禁失败，未导入正式库: $(tail -1 /tmp/bi-quality-gate.log)"
+    exit 66
+  fi
+  log "  ✅ 报表类型/日期/公会/核心字段全部通过"
   # ── API路径: JSON预处理+导入 ────────────────────────────
   log "📊 Step 3 (API): 导入JSON数据..."
   bash "$SCRIPT_DIR/api-ingest.sh" "$DATE" 2>&1 | tail -10
@@ -206,9 +215,10 @@ if [ "$API_SUCCESS" -eq 0 ]; then
   cd "$API_DIR"
 
   timeout 300 npx tsx src/scripts/batch-ingest-all.ts "$DOWNLOAD_DIR" 2>&1 | tail -5
-  IMPORT_EXIT=$?
+  IMPORT_EXIT=${PIPESTATUS[0]}
   if [ $IMPORT_EXIT -ne 0 ]; then
-    log "⚠️ 导入可能未完全成功 (exit=$IMPORT_EXIT)"
+    log "❌ Excel导入失败 (exit=$IMPORT_EXIT)，停止后续核对与发布"
+    exit "$IMPORT_EXIT"
   fi
 fi
 
@@ -236,9 +246,38 @@ if [ $V2_EXIT -ne 0 ]; then
   log "⚠️ V2公会数据更新失败 (exit=$V2_EXIT)，非致命错误，继续"
 fi
 
+# ── Step 3.1b: 强制从主表md重聚合当天全部V2 (2026-05-30 根治) ──
+# 原因: update-guild-v2 只覆盖部分公会+波动拦截器>50%跳变时return不写,造成V2静默缺公会
+#       (5-28/5-29 漏胡萝卜/宝石/巴西2/3/4)。reaggregate-v2-fix 读md先删后写,确保 V2=md。
+log "🔁 Step 3.1b: 强制重聚合 $DATE 全部 V2 (确保 V2=md, 绕过波动拦截静默缺口)..."
+TZ=Asia/Shanghai timeout 150 npx tsx src/scripts/reaggregate-v2-fix.ts "$DATE" 2>&1 | tail -3
+V2_REAGG_EXIT=${PIPESTATUS[0]}
+if [ "$V2_REAGG_EXIT" -ne 0 ]; then
+  log "❌ V2重聚合失败 (exit=$V2_REAGG_EXIT)，停止发布"
+  exit "$V2_REAGG_EXIT"
+fi
+log "  V2 强制重聚合完成"
+
+# ── Step 3.1c: 每日新注册主播数入库 (2026-06-01 新增) ──
+# 来源: BI公会数据 new_registe_streamer_dau (服务端汇总,不截断),按 guild_config 映射 guild_name→alias 加总。
+# 替代看板原"数hosts.registrationdate"反推(大公会主播明细下载截断→注册严重低估,巴西3曾183 vs 真490)。
+log "📝 Step 3.1c: 入库每日新注册主播数 (BI权威口径)..."
+TZ=Asia/Shanghai timeout 120 npx tsx src/scripts/ingest-guild-registrations.ts "$DATE" 2>&1 | tail -3
+REG_EXIT=${PIPESTATUS[0]}
+if [ "$REG_EXIT" -ne 0 ]; then
+  log "❌ 注册数入库失败 (exit=$REG_EXIT)，停止发布"
+  exit "$REG_EXIT"
+fi
+log "  注册数入库完成"
+
 # ── Step 3.2: LATAM 聚合 ────────────────────────────────
 log "🌎 Step 3.2: LATAM 聚合..."
 timeout 180 npx tsx src/scripts/generate-latam-v2.ts 2>&1 | tail -2
+LATAM_EXIT=${PIPESTATUS[0]}
+if [ "$LATAM_EXIT" -ne 0 ]; then
+  log "❌ LATAM聚合失败 (exit=$LATAM_EXIT)，停止发布"
+  exit "$LATAM_EXIT"
+fi
 log "  LATAM 完成"
 
 # ── Step 3.3: 健康检查 ──────────────────────────────────
@@ -272,38 +311,15 @@ GUILD_PCT=$($PG "SELECT ROUND(100.0*SUM(CASE WHEN guildname IS NOT NULL AND guil
 log "  guildName覆盖率: ${GUILD_PCT}%"
 
 # ── Step 3.4: 清理缓存 ─────────────────────────────────
-log "🧹 Step 3.4: 清理缓存..."
-$PG "DELETE FROM dashboard_cache;"
-$PG "DELETE FROM report_snapshots WHERE periodkey='$DATE';"
-log "  缓存已清理"
+log "⏸️ Step 3.4: 缓存清理延后到发布确认"
 
 # ── Step 3.5: bump dataVersion ─────────────────────────
-log "🔄 Step 3.5: bump dataVersion..."
+log "⏸️ Step 3.5: dataVersion 更新延后到发布确认"
 OLD_VER=$($PG "SELECT value FROM report_meta WHERE key='dataVersion';")
-$PG "UPDATE report_meta SET value = (CAST(value AS INTEGER) + 1)::TEXT, updatedat = CURRENT_TIMESTAMP WHERE key = 'dataVersion';"
-$PG "UPDATE report_meta SET value = '$(date -u +%Y-%m-%dT%H:%M:%S.000Z)', updatedat = CURRENT_TIMESTAMP WHERE key = 'lastUpdatedAt';"
-NEW_VER=$($PG "SELECT value FROM report_meta WHERE key='dataVersion';")
-log "  dataVersion: $OLD_VER -> $NEW_VER"
 
-# ── Step 4: 快照 ────────────────────────────────────────
-log "📸 Step 4: 生成快照..."
-MEM_AVAIL=$(awk '/MemAvailable/ {print int($2/1024)}' /proc/meminfo)
-if [ "$MEM_AVAIL" -lt 400 ]; then
-  log "⚠️ 内存不足(${MEM_AVAIL}MB)，跳过快照生成"
-else
-  timeout 1200 npx tsx src/scripts/generate-snapshots-fast.ts 2>&1 | tail -5
-  SNAP_EXIT=$?
-  if [ $SNAP_EXIT -eq 124 ]; then
-    log "⚠️ 快照生成超时（20分钟）"
-    pkill -f generate-snapshots-fast 2>/dev/null
-  fi
-fi
-
-# ── Step 4.1: 重启API服务（清空内存缓存）────────────────
-log "🔄 Step 4.1: 重启API服务..."
-pm2 restart nova-api 2>&1 || pm2 restart all 2>&1
-sleep 3
-log "  API服务已重启"
+# Snapshot generation is part of publication, not ingestion. It now runs only
+# after the source completeness gate below succeeds.
+log "⏸️ Step 4: 快照生成延后到源数据完整性校验通过后"
 
 # ── Step 5: 最终验证 + 日志摘要 ─────────────────────────
 log ""
@@ -332,12 +348,24 @@ log "  快照:             ${SNAPSHOT_COUNT:-0} 条"
 log "  sid重复:          ${DUP:-?}"
 log "  guildName覆盖率:  ${GUILD_PCT:-?}%"
 
-if [ "${FINAL_COUNT:-0}" -gt 3000 ]; then
-  log "  状态: ✅ 同步完成！数据完整"
+MIN_COMPLETE_ROWS=${BI_MIN_ROWS:-1500}
+SOURCE_VALID=0
+PUBLISH_OK=0
+if [ "${FINAL_COUNT:-0}" -ge "$MIN_COMPLETE_ROWS" ] && [ -z "${MISSING_REPORTS:-}" ] && [ "${GUILD_PCT:-0}" = "100.0" ]; then
+  SOURCE_VALID=1
+  log "  源数据状态: ✅ 完整，进入统一publication候选验证"
+  if NOVA_API_DIR="$API_DIR" timeout 45m "$API_DIR/scripts/run-daily-publication.sh" \
+      --version="daily-$DATE-$(date +%s)" --business-date="$DATE"; then
+    PUBLISH_OK=1
+    log "  发布确认: ✅ 候选验证通过并完成原子切换"
+  else
+    PUBLISH_EXIT=$?
+    log "  发布确认: ❌ 统一publication失败(exit=$PUBLISH_EXIT)；原PUBLISHED保持或已自动恢复"
+  fi
 elif [ "${FINAL_COUNT:-0}" -gt 0 ]; then
-  log "  状态: ⚠️ 同步完成但数据可能不完整（正常应>3000）"
+  log "  源数据状态: ⚠️ 未通过动态完整性校验；不发布"
 else
-  log "  状态: ❌ 数据库中无 $DATE 数据"
+  log "  源数据状态: ❌ 数据库中无 $DATE 数据；不发布"
 fi
 log "========================================="
 
@@ -347,34 +375,65 @@ log "========================================="
 notify_feishu() {
   local title="$1"
   local content="$2"
+  # 2026-05-09 P2 Day 4 final: 补 --source / --key 让 dedupe 正常工作（不传 --channel，走默认 push 因为是真同步失败）
   python3 /home/ubuntu/nova-auto-download/feishu-notify.py "$title
-$content" > /dev/null 2>&1
+$content" --source daily-sync --key "sync-status-$(date +%Y-%m-%d)" > /dev/null 2>&1
 }
 
 # 2026-04-30: 成功不再发"✅ Nova 同步完成"（每天 -1 条噪音），失败仍发
-if [ "${FINAL_COUNT:-0}" -gt 3000 ]; then
+if [ "$SOURCE_VALID" -eq 1 ] && [ "$PUBLISH_OK" -eq 1 ]; then
   log "  ✅ Nova 同步完成（不再发飞书）：日期=$DATE 主播=${FINAL_COUNT} 条"
+elif [ "$SOURCE_VALID" -eq 1 ]; then
+  notify_feishu "❌ Nova 发布失败" "日期: $DATE | 源数据完整但快照/统一日事实未发布 | 缓存和版本未更新"
 elif [ "${FINAL_COUNT:-0}" -gt 0 ]; then
-  notify_feishu "⚠️ Nova 同步不完整" "日期: $DATE | 仅 ${FINAL_COUNT} 条（正常应>3000）| 缺失: ${MISSING_REPORTS[*]:-无} | 请检查 sync.log"
+  notify_feishu "⚠️ Nova 同步未通过发布校验" "日期: $DATE | ${FINAL_COUNT} 条 | 缺失公会: ${MISSING_REPORTS[*]:-无} | guild覆盖率: ${GUILD_PCT:-?}% | 不再使用固定3000行阈值"
 else
   notify_feishu "❌ Nova 同步失败" "日期: $DATE | 数据库中无数据 | 缺失: ${MISSING_REPORTS[*]:-无} | 请立即检查 sync.log"
 fi
 
-# ── 失败检测: metrics_daily 今日数据为0 ────────────────────
-LATEST_COUNT=$(PGPASSWORD='Nova2026pg!' psql -U nova_app -h localhost -d nova_dashboard -t -c "SELECT COUNT(*) FROM metrics_daily WHERE TO_CHAR(date AT TIME ZONE 'Asia/Shanghai', 'YYYY-MM-DD') = '$(date -u -d "+8 hours" +"%Y-%m-%d")';" 2>/dev/null | tr -d ' ')
-if [ "${LATEST_COUNT:-0}" -eq 0 ] 2>/dev/null; then
-  log "⚠️ 数据同步告警: metrics_daily 当天数据为0条，请检查BI下载和导入链路"
-  python3 /home/ubuntu/nova-auto-download/feishu-notify.py "⚠️ 数据同步告警: metrics_daily 当天数据为0条，请检查BI下载和导入链路" > /dev/null 2>&1
-fi
+# 2026-05-09 P2 Day 4 final: 删除冗余的"metrics_daily 当天数据为0"检测块
+# 原因：1) 与上面 FINAL_COUNT 检测重复 2) 用 $(date -u -d "+8 hours") 算 CST 当天，
+#       但 BI 数据落库本来就是昨天（因为 16:00 才有昨天数据），永远会触发 → 噪音
 
 # ── Step 3.2.1: 经纪人归属同步 ────────────────────────────
-if [ -f "/home/ubuntu/运营ID.xlsx" ]; then
-  log "👥 Step 3.2.1: 同步经纪人归属..."
-  timeout 120 npx tsx src/scripts/import-agent-hosts.ts 2>&1 | tail -3
-  log "  经纪人归属同步完成"
+# 2026-05-30: 去掉过时假xlsx(/home/ubuntu/运营ID.xlsx,停在4-21)的-f门控。
+# 同步早已改读PG lark_chat_id_records,门控纯历史残留;删它防"假文件被删->同步静默停"。
+log "👥 Step 3.2.1: 同步经纪人归属..."
+timeout 120 npx tsx src/scripts/import-agent-hosts.ts 2>&1 | tail -12
+AGENT_SYNC_EXIT=${PIPESTATUS[0]}
+if [ "$AGENT_SYNC_EXIT" -eq 0 ]; then
+  log "  ✅ 经纪人归属同步完成"
+elif [ "$AGENT_SYNC_EXIT" -eq 2 ]; then
+  log "  🛑 经纪人归属同步被安全阈值拦截，数据库未写入；其他数据同步继续"
+else
+  log "  ❌ 经纪人归属同步异常 (exit=$AGENT_SYNC_EXIT)，数据库未确认更新；其他数据同步继续"
+fi
+
+# ── Step 3.2.2: 从权威归属名单自动补齐运营登录账号 ──────────
+# 只新增，不因单日源数据缺失删除或停用已有账号。
+log "🔐 Step 3.2.2: 自动补齐新运营账号..."
+DEFAULT_NEW_AGENT_PASSWORD="nova2026" timeout 120 npx tsx src/scripts/sync-authoritative-agent-accounts.ts 2>&1 | tail -12
+ACCOUNT_SYNC_EXIT=${PIPESTATUS[0]}
+if [ "$ACCOUNT_SYNC_EXIT" -eq 0 ]; then
+  log "  ✅ 运营账号同步完成"
+else
+  log "  ❌ 运营账号同步异常 (exit=$ACCOUNT_SYNC_EXIT)，已有账号不受影响"
 fi
 
 # ── Step 3.3: 飞书注册目标同步 ────────────────────────────
 log "📋 Step 3.3: 同步飞书注册目标..."
 cd "$API_DIR" && timeout 60 npx tsx src/scripts/sync-feishu-targets.ts 2>&1 | tail -3
-log "  飞书目标同步完成"
+TARGET_EXIT=${PIPESTATUS[0]}
+if [ "$TARGET_EXIT" -eq 0 ]; then
+  log "  飞书目标同步完成"
+else
+  log "  ⚠️ 飞书目标同步失败(exit=$TARGET_EXIT)，不回滚已确认发布"
+fi
+
+# Queue workers and settlement callers must receive the publication result,
+# not merely the result of the last optional follow-up command.
+if [ "$PUBLISH_OK" -ne 1 ]; then
+  log "❌ 流水线结束但未发布；返回失败供队列保留并重试"
+  exit 67
+fi
+exit 0

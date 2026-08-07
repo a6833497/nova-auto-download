@@ -44,8 +44,6 @@ for jf in sorted(json_files):
     for r in rows:
         if r.get("conversation_type") != "total":
             continue
-        if r.get("streamer_is_off") == "Y":
-            continue
         dd = str(r.get("create_date(day)", ""))
         if dd != date_compact:
             continue
