@@ -169,6 +169,7 @@ class LinkyRunnerTests(unittest.TestCase):
         self.assertIn('LINKY_VOICE_LOOKBACK_DAYS:-14', source)
         self.assertIn('while IFS= read -r VOICE_DATE', source)
         self.assertIn('--date "$VOICE_DATE"', source)
+        self.assertIn('--lock-fd 8', source)
         self.assertNotIn("linky_sync_runner.py", source)
         self.assertNotIn("linke_ledger_pull.py", source)
 

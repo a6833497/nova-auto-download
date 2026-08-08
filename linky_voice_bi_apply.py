@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import datetime as dt
 import fcntl
 import hashlib
@@ -17,6 +18,31 @@ from linky_runtime import atomic_json, database_url_from_environment
 
 LOCK_PATH = Path("/tmp/nova-data-write.lock")
 SCHEMA_VERSION = 1
+
+
+@contextlib.contextmanager
+def data_write_lock(inherited_fd: int | None = None):
+    LOCK_PATH.touch(mode=0o600, exist_ok=True)
+    if inherited_fd is not None:
+        try:
+            inherited = os.fstat(inherited_fd)
+            expected = LOCK_PATH.stat()
+        except OSError as error:
+            raise SystemExit("inherited data write lock is unavailable") from error
+        if (inherited.st_dev, inherited.st_ino) != (expected.st_dev, expected.st_ino):
+            raise SystemExit("inherited data write lock does not match canonical lock")
+        try:
+            fcntl.flock(inherited_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError as error:
+            raise SystemExit("inherited data write lock is not held") from error
+        yield
+        return
+    with LOCK_PATH.open("r+") as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError as error:
+            raise SystemExit("data write lock is busy") from error
+        yield
 
 
 def decimal(value: Any) -> Decimal:
@@ -187,6 +213,7 @@ def main() -> int:
     parser.add_argument("--apply", action="store_true")
     parser.add_argument("--max-changes", type=int, default=5000)
     parser.add_argument("--rollback-snapshot")
+    parser.add_argument("--lock-fd", type=int)
     args = parser.parse_args()
     if bool(args.rollback_snapshot) == bool(args.date):
         raise SystemExit("provide exactly one of --date or --rollback-snapshot")
@@ -194,12 +221,7 @@ def main() -> int:
     if not database_url:
         raise SystemExit("DATABASE_URL is required")
     import psycopg2
-    LOCK_PATH.touch(mode=0o600, exist_ok=True)
-    with LOCK_PATH.open("r+") as lock:
-        try:
-            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError as error:
-            raise SystemExit("data write lock is busy") from error
+    with data_write_lock(args.lock_fd):
         with psycopg2.connect(database_url) as connection:
             connection.set_session(isolation_level="SERIALIZABLE", readonly=not args.apply)
             if args.rollback_snapshot:
