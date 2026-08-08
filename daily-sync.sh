@@ -255,7 +255,7 @@ while IFS= read -r VOICE_DATE; do
   fi
   if ! timeout 180 python3 "$SCRIPT_DIR/linky_voice_bi_apply.py" --date "$VOICE_DATE" \
       --evidence-dir "$SCRIPT_DIR/state/linky-voice-audit" \
-      --snapshot-dir "$SCRIPT_DIR/state/linky-voice-repair" --apply; then
+      --snapshot-dir "$SCRIPT_DIR/state/linky-voice-repair" --lock-fd 8 --apply; then
     log "❌ 语音房 BI 最终事实落账失败（$VOICE_DATE）；停止后续publication"
     exit 68
   fi

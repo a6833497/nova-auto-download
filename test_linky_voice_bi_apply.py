@@ -1,9 +1,11 @@
 import json
+import fcntl
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
-from linky_voice_bi_apply import load_evidence, targets_from_evidence
+from linky_voice_bi_apply import data_write_lock, load_evidence, targets_from_evidence
 
 
 def evidence(changed):
@@ -43,6 +45,26 @@ class VoiceBiApplyTest(unittest.TestCase):
                 "formalGuild": "印尼1语音房", "sourceGuilds": ["Nova-Indonesia"]}))
             loaded = load_evidence(Path(directory), "2026-08-03")
             self.assertEqual(targets_from_evidence(loaded), [])
+
+    def test_reuses_the_canonical_lock_inherited_from_daily_sync(self):
+        with tempfile.TemporaryDirectory() as directory:
+            lock_path = Path(directory) / "data-write.lock"
+            lock_path.touch()
+            with lock_path.open("r+") as held, patch("linky_voice_bi_apply.LOCK_PATH", lock_path):
+                fcntl.flock(held, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                with data_write_lock(held.fileno()):
+                    pass
+
+    def test_rejects_an_inherited_fd_for_a_different_file(self):
+        with tempfile.TemporaryDirectory() as directory:
+            lock_path = Path(directory) / "data-write.lock"
+            other_path = Path(directory) / "other.lock"
+            lock_path.touch()
+            other_path.touch()
+            with other_path.open("r+") as other, patch("linky_voice_bi_apply.LOCK_PATH", lock_path):
+                with self.assertRaisesRegex(SystemExit, "does not match canonical lock"):
+                    with data_write_lock(other.fileno()):
+                        pass
 
 
 if __name__ == "__main__":
