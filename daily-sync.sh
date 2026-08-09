@@ -24,6 +24,7 @@
 set -o pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+export PLAYWRIGHT_BROWSERS_PATH=0
 API_DIR="/home/ubuntu/nova-backend-current/api"
 STATE_ROOT="${NOVA_STATE_ROOT:-/home/ubuntu/nova-auto-download/state}"
 NOTIFY_SCRIPT="${NOVA_NOTIFY_SCRIPT:-$SCRIPT_DIR/feishu-notify.py}"

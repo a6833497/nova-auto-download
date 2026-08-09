@@ -13,6 +13,7 @@ class RuntimePathsTest(unittest.TestCase):
         self.assertIn('"$STATE_ROOT/linky-voice-audit"', source)
         self.assertIn('"$STATE_ROOT/linky-voice-repair"', source)
         self.assertIn('python3 "$NOTIFY_SCRIPT"', source)
+        self.assertIn("export PLAYWRIGHT_BROWSERS_PATH=0", source)
 
 
     def test_heal_and_timo_use_their_runtime_script_directory_by_default(self):

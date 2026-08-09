@@ -266,6 +266,24 @@ def runtime_preflight(root: Path, policy: dict, entry: str, manifest_path: Path)
             for package_file in package_root.rglob("*"):
                 if package_file.is_file():
                     failures.extend(validate_release_file(root, package_file, manifest, f"node:{package}"))
+    if "playwright" in policy.get("runtimePackages", {}).get("node", []):
+        browser = subprocess.run(
+            ["node", "-e", "console.log(require('playwright').chromium.executablePath())"],
+            cwd=root, text=True, capture_output=True, check=False,
+        )
+        if browser.returncode != 0 or not browser.stdout.strip():
+            failures.append("PLAYWRIGHT_BROWSER_UNRESOLVED")
+        else:
+            browser_path = Path(browser.stdout.strip())
+            if not within(browser_path, root):
+                failures.append(f"PLAYWRIGHT_BROWSER_OUTSIDE_RELEASE:{browser_path}")
+            else:
+                browser_root = browser_path
+                while browser_root.parent != root and browser_root.parent.name != ".local-browsers":
+                    browser_root = browser_root.parent
+                for browser_file in browser_root.rglob("*"):
+                    if browser_file.is_file():
+                        failures.extend(validate_release_file(root, browser_file, manifest, "playwright-browser"))
     return failures
 
 
