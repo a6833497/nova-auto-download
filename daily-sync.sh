@@ -30,6 +30,8 @@ NOTIFY_SCRIPT="${NOVA_NOTIFY_SCRIPT:-$SCRIPT_DIR/feishu-notify.py}"
 export PGPASSWORD="Nova2026pg!"
 PG="psql -h 127.0.0.1 -U nova_app -d nova_dashboard -tAc"
 
+python3 "$SCRIPT_DIR/verify_runtime_closure.py" --preflight-entry daily-sync.sh || exit $?
+
 if [ -z "$1" ]; then
   # 下载昨天的数据
   DAYS_BACK=1
