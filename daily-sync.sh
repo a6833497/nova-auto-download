@@ -24,11 +24,14 @@
 set -o pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+export PLAYWRIGHT_BROWSERS_PATH=0
 API_DIR="/home/ubuntu/nova-backend-current/api"
 STATE_ROOT="${NOVA_STATE_ROOT:-/home/ubuntu/nova-auto-download/state}"
-NOTIFY_SCRIPT="${NOVA_NOTIFY_SCRIPT:-/home/ubuntu/nova-auto-download/feishu-notify.py}"
+NOTIFY_SCRIPT="${NOVA_NOTIFY_SCRIPT:-$SCRIPT_DIR/feishu-notify.py}"
 export PGPASSWORD="Nova2026pg!"
 PG="psql -h 127.0.0.1 -U nova_app -d nova_dashboard -tAc"
+
+python3 "$SCRIPT_DIR/verify_runtime_closure.py" --preflight-entry daily-sync.sh || exit $?
 
 if [ -z "$1" ]; then
   # 下载昨天的数据

@@ -19,7 +19,12 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
       - run: python -m pip install psycopg2-binary
+      - run: npm ci
       - name: Unit and contract tests
         run: >-
           python -m unittest -v
@@ -27,13 +32,24 @@ jobs:
           test_linky_fetch.py
           test_linky_sync_runner.py
           test_linky_voice_bi_audit.py
+          test_runtime_paths.py
+          test_runtime_closure.py
+          test_sync_timo_external.py
       - name: Python compile
         run: >-
           python -m py_compile
+          verify_runtime_closure.py
           linky_runtime.py linky_api_pagination.py linky_fetch.py linky_consumers.py
           linky_sync_runner.py linke_live_pull.py linke_ledger_pull.py
           linky_voice_bi_audit.py linky_voice_bi_batch.py backfill_voice_call.py
       - name: Shell syntax
-        run: bash -n daily-sync.sh linke_live_refresh.sh linke_ledger_daily.sh
+        run: >-
+          bash -n daily-sync.sh bi-data-heal.sh api-ingest.sh
+          linke_live_refresh.sh linke_ledger_daily.sh
+          sync-timo-external-daily.sh sync-timo-external.sh
+      - name: Runtime closure gate
+        run: python verify_runtime_closure.py
+      - name: Runtime package closure
+        run: node -e 'console.log(require.resolve("playwright")); console.log(require.resolve("playwright-core"))'
       - name: Diff hygiene
         run: git diff --check HEAD^ HEAD

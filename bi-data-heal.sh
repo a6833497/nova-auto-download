@@ -23,7 +23,7 @@ DAILY_SYNC="${NOVA_DAILY_SYNC_COMMAND:-$SCRIPT_DIR/daily-sync.sh}"
 ATTEMPT_FILE=/tmp/bi-heal-attempts.txt
 GUILD_DROP_RATIO=0.5
 
-PSQL_BIN='PGPASSWORD=Nova2026pg! psql -U nova_app -h localhost -d nova_dashboard -t -A'
+python3 "$SCRIPT_DIR/verify_runtime_closure.py" --preflight-entry bi-data-heal.sh || exit $?
 
 log() {
   echo "[$(TZ=Asia/Shanghai date '+%Y-%m-%d %H:%M:%S')] $1" | tee -a "$LOG"
@@ -31,7 +31,7 @@ log() {
 
 run_sql() {
   # 用 stdin 喂 SQL，避免 bash 双层引号转义
-  eval "$PSQL_BIN" -c "\"$1\"" 2>&1
+  PGPASSWORD='Nova2026pg!' psql -U nova_app -h localhost -d nova_dashboard -t -A -c "$1" 2>&1
 }
 
 run_sql_stdin() {
