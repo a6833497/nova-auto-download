@@ -16,9 +16,10 @@
 
 set -u
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 LOG=/tmp/bi-heal.log
-NOTIFY=/home/ubuntu/nova-auto-download/feishu-notify.py
-DAILY_SYNC=/home/ubuntu/nova-auto-download/daily-sync.sh
+NOTIFY="${NOVA_NOTIFY_SCRIPT:-$SCRIPT_DIR/feishu-notify.py}"
+DAILY_SYNC="${NOVA_DAILY_SYNC_COMMAND:-$SCRIPT_DIR/daily-sync.sh}"
 ATTEMPT_FILE=/tmp/bi-heal-attempts.txt
 GUILD_DROP_RATIO=0.5
 
@@ -183,7 +184,7 @@ if [ "${ATTEMPTS:-0}" -ge 2 ] && [ "$CURRENT_HOUR_INT" -ge 17 ]; then
 
 诊断方向:
 1) BI session 是否过期？看 /tmp/bi-session.json mtime；过期跑 node get-bi-session.mjs <idx> 刷新
-2) tail -50 /home/ubuntu/nova-auto-download/sync.log 看下载错误（找 ERR_ABORTED）
+2) tail -50 ${NOVA_SYNC_LOG:-/home/ubuntu/nova-auto-download/sync.log} 看下载错误（找 ERR_ABORTED）
 3) 看 /tmp/bi-heal.log 完整自愈日志
 4) BI 网站可达性 + accessTicket 是否过期
 9 个报表 idx：0印尼1 1印尼2 2巴西1 3巴西2 4巴西3 5巴西4 6土耳其1 7西语1 8西语2" --level P0 --source bi-heal --key "heal-fail-$DATE_YESTERDAY" > /dev/null 2>&1

@@ -25,6 +25,8 @@ set -o pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 API_DIR="/home/ubuntu/nova-backend-current/api"
+STATE_ROOT="${NOVA_STATE_ROOT:-/home/ubuntu/nova-auto-download/state}"
+NOTIFY_SCRIPT="${NOVA_NOTIFY_SCRIPT:-/home/ubuntu/nova-auto-download/feishu-notify.py}"
 export PGPASSWORD="Nova2026pg!"
 PG="psql -h 127.0.0.1 -U nova_app -d nova_dashboard -tAc"
 
@@ -249,19 +251,19 @@ while IFS= read -r VOICE_DATE; do
   log "  语音房 BI: $VOICE_DATE"
   if ! timeout 180 python3 "$SCRIPT_DIR/linky_voice_bi_batch.py" --date "$VOICE_DATE" \
       --staging-root "/home/ubuntu/nova-data/upload-staging/daily" \
-      --evidence-dir "$SCRIPT_DIR/state/linky-voice-audit"; then
+      --evidence-dir "$STATE_ROOT/linky-voice-audit"; then
     log "❌ 语音房 BI 核对失败（$VOICE_DATE）；停止后续publication"
     exit 68
   fi
   if ! timeout 180 python3 "$SCRIPT_DIR/linky_voice_bi_apply.py" --date "$VOICE_DATE" \
-      --evidence-dir "$SCRIPT_DIR/state/linky-voice-audit" \
-      --snapshot-dir "$SCRIPT_DIR/state/linky-voice-repair" --lock-fd 8 --apply; then
+      --evidence-dir "$STATE_ROOT/linky-voice-audit" \
+      --snapshot-dir "$STATE_ROOT/linky-voice-repair" --lock-fd 8 --apply; then
     log "❌ 语音房 BI 最终事实落账失败（$VOICE_DATE）；停止后续publication"
     exit 68
   fi
   if ! timeout 180 python3 "$SCRIPT_DIR/linky_voice_bi_batch.py" --date "$VOICE_DATE" \
       --staging-root "/home/ubuntu/nova-data/upload-staging/daily" \
-      --evidence-dir "$SCRIPT_DIR/state/linky-voice-audit"; then
+      --evidence-dir "$STATE_ROOT/linky-voice-audit"; then
     log "❌ 语音房 BI 落账后复核失败（$VOICE_DATE）；停止后续publication"
     exit 68
   fi
@@ -412,7 +414,7 @@ notify_feishu() {
   local title="$1"
   local content="$2"
   # 2026-05-09 P2 Day 4 final: 补 --source / --key 让 dedupe 正常工作（不传 --channel，走默认 push 因为是真同步失败）
-  python3 /home/ubuntu/nova-auto-download/feishu-notify.py "$title
+  python3 "$NOTIFY_SCRIPT" "$title
 $content" --source daily-sync --key "sync-status-$(date +%Y-%m-%d)" > /dev/null 2>&1
 }
 
