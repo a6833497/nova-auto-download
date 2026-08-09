@@ -40,7 +40,7 @@ class Fixture:
                 "NOVA_NOTIFY_SCRIPT": {"scope": "sameReleaseManifest"},
                 "NOVA_DAILY_SYNC_COMMAND": {"scope": "sameReleaseManifest", "singleExecutable": True},
             },
-            "runtimePackages": {"node": []},
+            "runtimeRequirements": {"entry.sh": {"nodePackages": [], "playwrightBrowser": False}},
             "executableReleaseFiles": ["entry.sh", "verify_runtime_closure.py"],
         }
         self.write_policy()
@@ -68,6 +68,30 @@ class Fixture:
 class RuntimeClosureTest(unittest.TestCase):
     def test_policy_closure_passes_from_repository(self):
         self.assertEqual(verify_runtime_closure.main([]), 0)
+
+    def test_runtime_requirements_are_entry_specific(self):
+        policy = json.loads((ROOT / "runtime-closure-policy.json").read_text())
+        daily = policy["runtimeRequirements"]["daily-sync.sh"]
+        heal = policy["runtimeRequirements"]["bi-data-heal.sh"]
+        timo = policy["runtimeRequirements"]["sync-timo-external-daily.sh"]
+        self.assertTrue(daily["playwrightBrowser"])
+        self.assertTrue(heal["playwrightBrowser"])
+        self.assertFalse(timo["playwrightBrowser"])
+        self.assertEqual(timo["nodePackages"], [])
+
+    def test_browser_requirement_is_not_silently_skipped_for_daily_entry(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            f = Fixture(pathlib.Path(tmp))
+            f.policy["runtimeRequirements"]["entry.sh"] = {
+                "nodePackages": ["definitely-not-installed-runtime-package"],
+                "playwrightBrowser": True,
+            }
+            f.write_policy()
+            f.write_manifest()
+            result = f.run(preflight=True)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("NODE_PACKAGE_UNRESOLVED", result.stderr)
+            self.assertIn("PLAYWRIGHT_BROWSER_UNRESOLVED", result.stderr)
 
     def test_env_override_old_checkout_tmp_and_state_fail(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -216,7 +240,7 @@ class RuntimeClosureTest(unittest.TestCase):
             policy = json.loads((release / "runtime-closure-policy.json").read_text())
             policy["entrypoints"] = ["sync-timo-external-daily.sh"]
             policy["externalCodeDependencies"] = []
-            policy["runtimePackages"] = {"node": []}
+            policy["runtimeRequirements"] = {"sync-timo-external-daily.sh": {"nodePackages": [], "playwrightBrowser": False}}
             policy["executableReleaseFiles"] = ["sync-timo-external-daily.sh", "sync-timo-external.sh", "verify_runtime_closure.py"]
             (release / "runtime-closure-policy.json").write_text(json.dumps(policy))
             runner = release / "sync-timo-external.sh"

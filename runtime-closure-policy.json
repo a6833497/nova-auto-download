@@ -47,8 +47,19 @@
     "NOVA_NOTIFY_SCRIPT": {"scope": "sameReleaseManifest"},
     "NOVA_DAILY_SYNC_COMMAND": {"scope": "sameReleaseManifest", "singleExecutable": true}
   },
-  "runtimePackages": {
-    "node": ["playwright", "playwright-core"]
+  "runtimeRequirements": {
+    "daily-sync.sh": {
+      "nodePackages": ["playwright", "playwright-core"],
+      "playwrightBrowser": true
+    },
+    "bi-data-heal.sh": {
+      "nodePackages": ["playwright", "playwright-core"],
+      "playwrightBrowser": true
+    },
+    "sync-timo-external-daily.sh": {
+      "nodePackages": [],
+      "playwrightBrowser": false
+    }
   },
   "executableReleaseFiles": [
     "daily-sync.sh",

@@ -245,7 +245,11 @@ def runtime_preflight(root: Path, policy: dict, entry: str, manifest_path: Path)
                 continue
         failures.extend(validate_release_file(root, Path(value), manifest, variable))
     failures.extend(validate_backend(policy))
-    for package in policy.get("runtimePackages", {}).get("node", []):
+    requirements = policy.get("runtimeRequirements", {}).get(entry)
+    if requirements is None:
+        failures.append(f"RUNTIME_REQUIREMENTS_UNDECLARED:{entry}")
+        requirements = {}
+    for package in requirements.get("nodePackages", []):
         result = subprocess.run(
             ["node", "-e", "console.log(require.resolve(process.argv[1]))", package],
             cwd=root, text=True, capture_output=True, check=False,
@@ -266,7 +270,7 @@ def runtime_preflight(root: Path, policy: dict, entry: str, manifest_path: Path)
             for package_file in package_root.rglob("*"):
                 if package_file.is_file():
                     failures.extend(validate_release_file(root, package_file, manifest, f"node:{package}"))
-    if "playwright" in policy.get("runtimePackages", {}).get("node", []):
+    if requirements.get("playwrightBrowser"):
         browser = subprocess.run(
             ["node", "-e", "console.log(require('playwright').chromium.executablePath())"],
             cwd=root, text=True, capture_output=True, check=False,
