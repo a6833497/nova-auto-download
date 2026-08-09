@@ -4,7 +4,8 @@
 set -euo pipefail
 
 API_DIR=${TIMO_API_DIR:-/home/ubuntu/nova-backend-current/api}
-DISPLAY_TIME_REBUILDER=${TIMO_DISPLAY_TIME_REBUILDER:-/home/ubuntu/nova-auto-download/rebuild_display_time.py}
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+DISPLAY_TIME_REBUILDER=${TIMO_DISPLAY_TIME_REBUILDER:-$SCRIPT_DIR/rebuild_display_time.py}
 SYNC_WINDOW=${TIMO_SYNC_WINDOW:-daily}
 
 exec 9>/tmp/timo-external-sync.lock
