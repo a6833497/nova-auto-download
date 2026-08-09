@@ -1,0 +1,52 @@
+{
+  "entrypoints": {
+    "daily-sync.sh": [
+      "api-download.mjs",
+      "auto-download.mjs",
+      "data-quality-gate.py",
+      "api-ingest.sh",
+      "linky_voice_bi_batch.py",
+      "linky_voice_bi_apply.py",
+      "feishu-notify.py"
+    ],
+    "bi-data-heal.sh": ["daily-sync.sh", "feishu-notify.py"],
+    "sync-timo-external-daily.sh": ["sync-timo-external.sh"],
+    "sync-timo-external.sh": ["rebuild_display_time.py"],
+    "linke_live_refresh.sh": ["linky_sync_runner.py", "rebuild_display_time.py"],
+    "linke_ledger_daily.sh": ["linky_sync_runner.py"],
+    "linky_sync_runner.py": [
+      "linky_runtime.py",
+      "linky_fetch.py",
+      "linky_api_pagination.py",
+      "linky_consumers.py"
+    ],
+    "linky_fetch.py": ["linky_api_pagination.py"],
+    "linky_voice_bi_batch.py": ["linke_ledger_pull.py", "linky_voice_bi_audit.py"],
+    "linky_voice_bi_audit.py": ["linke_ledger_pull.py"],
+    "linky_voice_bi_apply.py": ["linky_runtime.py"],
+    "linke_ledger_pull.py": ["linky_runtime.py", "linky_sync_runner.py"]
+  },
+  "externalCodeRoots": [
+    "/home/ubuntu/nova-backend-current/api"
+  ],
+  "mutableDataRoots": [
+    "/home/ubuntu/nova-auto-download/state",
+    "/home/ubuntu/nova-auto-download/logs",
+    "/home/ubuntu/nova-data",
+    "/tmp",
+    "/home/ubuntu/.config/nova"
+  ],
+  "forbiddenCodeRoots": [
+    "/home/ubuntu/nova-auto-download",
+    "/home/ubuntu/nova-dashboard-deploy-final"
+  ],
+  "executableReleaseFiles": [
+    "daily-sync.sh",
+    "bi-data-heal.sh",
+    "sync-timo-external-daily.sh",
+    "sync-timo-external.sh",
+    "api-ingest.sh",
+    "linke_live_refresh.sh",
+    "linke_ledger_daily.sh"
+  ]
+}

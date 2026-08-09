@@ -27,6 +27,9 @@ jobs:
           test_linky_fetch.py
           test_linky_sync_runner.py
           test_linky_voice_bi_audit.py
+          test_runtime_paths.py
+          test_runtime_closure.py
+          test_sync_timo_external.py
       - name: Python compile
         run: >-
           python -m py_compile
@@ -34,6 +37,11 @@ jobs:
           linky_sync_runner.py linke_live_pull.py linke_ledger_pull.py
           linky_voice_bi_audit.py linky_voice_bi_batch.py backfill_voice_call.py
       - name: Shell syntax
-        run: bash -n daily-sync.sh linke_live_refresh.sh linke_ledger_daily.sh
+        run: >-
+          bash -n daily-sync.sh bi-data-heal.sh api-ingest.sh
+          linke_live_refresh.sh linke_ledger_daily.sh
+          sync-timo-external-daily.sh sync-timo-external.sh
+      - name: Runtime closure gate
+        run: python verify_runtime_closure.py
       - name: Diff hygiene
         run: git diff --check HEAD^ HEAD

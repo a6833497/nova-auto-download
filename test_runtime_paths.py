@@ -7,7 +7,7 @@ ROOT = Path(__file__).parent
 def test_daily_sync_state_and_notify_paths_are_overridable():
     source = (ROOT / "daily-sync.sh").read_text(encoding="utf-8")
     assert 'STATE_ROOT="${NOVA_STATE_ROOT:-/home/ubuntu/nova-auto-download/state}"' in source
-    assert 'NOTIFY_SCRIPT="${NOVA_NOTIFY_SCRIPT:-/home/ubuntu/nova-auto-download/feishu-notify.py}"' in source
+    assert 'NOTIFY_SCRIPT="${NOVA_NOTIFY_SCRIPT:-$SCRIPT_DIR/feishu-notify.py}"' in source
     assert '"$STATE_ROOT/linky-voice-audit"' in source
     assert '"$STATE_ROOT/linky-voice-repair"' in source
     assert 'python3 "$NOTIFY_SCRIPT"' in source
