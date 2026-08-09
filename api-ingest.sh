@@ -3,7 +3,7 @@
 # 用法: bash api-ingest.sh 2026-04-27
 DATE=${1:?需要日期参数}
 DATA_DIR="/home/ubuntu/nova-data/upload-staging/daily/$DATE"
-API_DIR="/home/ubuntu/nova-dashboard-deploy-final/api"
+API_DIR="${NOVA_API_DIR:-/home/ubuntu/nova-backend-current/api}"
 TMP_DIR="/tmp/api-ingest-${DATE}"
 
 echo "[api-ingest] 预处理 $DATE 的JSON数据..."
