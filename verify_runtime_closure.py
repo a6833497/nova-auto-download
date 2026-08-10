@@ -158,7 +158,8 @@ def validate_release_file(root: Path, path: Path, manifest: dict[str, dict], lab
 def validate_backend(policy: dict) -> list[str]:
     failures: list[str] = []
     for dependency in policy["externalCodeDependencies"]:
-        entry = Path(dependency["entryRoot"])
+        entry_env = dependency.get("entryRootEnv")
+        entry = Path(os.environ.get(entry_env, dependency["entryRoot"]) if entry_env else dependency["entryRoot"])
         try:
             api_root = entry.resolve(strict=True)
         except (FileNotFoundError, RuntimeError):

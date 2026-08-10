@@ -10,6 +10,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import time
 import uuid
 from typing import Any, Callable
@@ -25,6 +26,11 @@ DEFAULT_STATE = "/home/ubuntu/nova-auto-download/state"
 DEFAULT_TOKENS = "/home/ubuntu/.config/nova/linky-guild-tokens.json"
 CONSISTENCY_RESCAN_DELAY_SECONDS = 2.0
 CONSISTENCY_DRIFT_MARKERS = ("duplicate raw SID", "response total_item changed")
+BATCH_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
+
+
+def valid_batch_id(value: str) -> bool:
+    return bool(BATCH_ID_PATTERN.fullmatch(value))
 
 
 def observation_defaults(job_name: str, batch_id: str, lock_result: str) -> dict[str, Any]:
@@ -272,6 +278,7 @@ def run_cycle(*, job_name: str, mode: str, guilds: list[str], utc_today: dt.date
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--job-name", required=True)
+    parser.add_argument("--batch-id")
     parser.add_argument("--mode", choices=("hourly", "close-yesterday", "target"), required=True)
     parser.add_argument("--guild", action="append")
     parser.add_argument("--tokens", default=os.getenv("LINKE_GUILD_TOKENS", DEFAULT_TOKENS))
@@ -292,7 +299,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--target-write-live", action="store_true")
     parser.add_argument("--target-no-ledger", action="store_true")
     args = parser.parse_args(argv)
-    batch_id = f"{dt.datetime.now(dt.timezone.utc).strftime('%Y%m%dT%H%M%SZ')}-{uuid.uuid4().hex[:8]}"
+    batch_id = args.batch_id or f"{dt.datetime.now(dt.timezone.utc).strftime('%Y%m%dT%H%M%SZ')}-{uuid.uuid4().hex[:8]}"
+    if not valid_batch_id(batch_id):
+        parser.error("batch id must be a safe opaque identifier")
     lock_path = Path(args.lock_file)
     lock_path.parent.mkdir(parents=True, exist_ok=True)
     with lock_path.open("a+") as lock_handle:

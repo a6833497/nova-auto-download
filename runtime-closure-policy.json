@@ -5,6 +5,7 @@
     {
       "name": "nova-backend-production",
       "entryRoot": "/home/ubuntu/nova-backend-current/api",
+      "entryRootEnv": "NOVA_BACKEND_API_DIR",
       "releaseRootPattern": "/home/ubuntu/nova-backend-releases/",
       "metadata": "release-metadata.json",
       "manifest": "api/task-chain-manifest.sha256",
@@ -19,6 +20,7 @@
         "api/src/scripts/sync-feishu-targets.ts",
         "api/src/scripts/sync-timo-external.ts",
         "api/src/scripts/reconcile-timo-display.ts",
+        "api/src/scripts/refresh-operations-projections.ts",
         "api/scripts/run-daily-publication.sh"
       ]
     }

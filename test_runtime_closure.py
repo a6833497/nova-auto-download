@@ -78,6 +78,10 @@ class RuntimeClosureTest(unittest.TestCase):
         self.assertTrue(heal["playwrightBrowser"])
         self.assertFalse(timo["playwrightBrowser"])
         self.assertEqual(timo["nodePackages"], [])
+        self.assertFalse(policy["runtimeRequirements"]["linke_live_refresh.sh"]["playwrightBrowser"])
+        external = policy["externalCodeDependencies"][0]
+        self.assertEqual("NOVA_BACKEND_API_DIR", external["entryRootEnv"])
+        self.assertIn("api/src/scripts/refresh-operations-projections.ts", external["files"])
 
     def test_browser_requirement_is_not_silently_skipped_for_daily_entry(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -206,6 +210,7 @@ class RuntimeClosureTest(unittest.TestCase):
             dependency = {
                 "name": "backend",
                 "entryRoot": str(current / "api"),
+                "entryRootEnv": "NOVA_BACKEND_API_DIR",
                 "releaseRootPattern": str(releases),
                 "metadata": "release-metadata.json",
                 "manifest": "api/task-chain-manifest.sha256",
@@ -216,6 +221,12 @@ class RuntimeClosureTest(unittest.TestCase):
             f.write_manifest()
             self.assertEqual(f.run(preflight=True).returncode, 0)
 
+            evil_parent = base / "backend-releases-evil"
+            evil_release = evil_parent / "build-evil"
+            shutil.copytree(release, evil_release)
+            result = f.run(preflight=True, env={"NOVA_BACKEND_API_DIR": str(evil_release / "api")})
+            self.assertIn("EXTERNAL_PATH_BOUNDARY", result.stderr)
+
             manifest.write_text("")
             (release / "release-metadata.json").write_text(json.dumps({"taskManifestHash": digest(manifest)}))
             self.assertIn("EXTERNAL_NOT_IN_MANIFEST", f.run(preflight=True).stderr)
@@ -224,9 +235,6 @@ class RuntimeClosureTest(unittest.TestCase):
             (release / "release-metadata.json").write_text(json.dumps({"taskManifestHash": digest(manifest)}))
             self.assertIn("EXTERNAL_CHECKSUM_MISMATCH", f.run(preflight=True).stderr)
 
-            evil_parent = base / "backend-releases-evil"
-            evil_release = evil_parent / "build-evil"
-            shutil.copytree(release, evil_release)
             current.unlink()
             current.symlink_to(evil_release, target_is_directory=True)
             self.assertIn("EXTERNAL_PATH_BOUNDARY", f.run(preflight=True).stderr)

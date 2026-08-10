@@ -41,6 +41,14 @@ class RuntimePathsTest(unittest.TestCase):
         for entry in ("linke_live_refresh.sh", "linke_ledger_daily.sh"):
             self.assertEqual({"nodePackages": [], "playwrightBrowser": False}, requirements[entry])
 
+    def test_linky_hourly_pins_backend_release_and_persists_receipt(self):
+        source = (ROOT / "linke_live_refresh.sh").read_text(encoding="utf-8")
+        self.assertLess(source.index("--preflight-entry linke_live_refresh.sh"), source.index("linky_sync_runner.py"))
+        self.assertIn('BACKEND_API_DIR="$(readlink -f "$BACKEND_CURRENT/api")"', source)
+        self.assertIn('"$TSX_BIN" "$PROJECTION_SCRIPT"', source)
+        self.assertNotIn("npx tsx", source)
+        self.assertIn("write_runtime_receipt.py", source)
+
 
 if __name__ == "__main__":
     unittest.main()

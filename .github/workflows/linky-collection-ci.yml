@@ -31,6 +31,7 @@ jobs:
           test_linke_ledger_pull.py
           test_linky_fetch.py
           test_linky_sync_runner.py
+          test_runtime_receipt.py
           test_linky_voice_bi_audit.py
           test_runtime_paths.py
           test_runtime_closure.py
@@ -41,6 +42,7 @@ jobs:
           verify_runtime_closure.py
           linky_runtime.py linky_api_pagination.py linky_fetch.py linky_consumers.py
           linky_sync_runner.py linke_live_pull.py linke_ledger_pull.py
+          write_runtime_receipt.py
           linky_voice_bi_audit.py linky_voice_bi_batch.py backfill_voice_call.py
       - name: Shell syntax
         run: >-

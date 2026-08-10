@@ -14,7 +14,7 @@ import linke_ledger_pull
 import linke_live_pull
 from linky_consumers import build_ledger_rows, build_live_rows, validate_complete_bundle
 from linky_fetch import EndpointScan, FetchBundle, FetchScanError
-from linky_sync_runner import closure_complete, fetch_with_consistency_rescan, load_guilds, main, process_bundle, run_cycle, write_closure
+from linky_sync_runner import closure_complete, fetch_with_consistency_rescan, load_guilds, main, process_bundle, run_cycle, valid_batch_id, write_closure
 from linky_sync_runner import DEFAULT_TOKENS
 
 
@@ -45,6 +45,11 @@ def bundle(guild, day, complete=True):
 
 
 class LinkyRunnerTests(unittest.TestCase):
+    def test_batch_id_is_safe_for_evidence_paths(self):
+        self.assertTrue(valid_batch_id("20260810T140000Z-hourly-123"))
+        for value in ("", "../escape", "has space", "/absolute", "a" * 129):
+            self.assertFalse(valid_batch_id(value))
+
     def test_consistency_drift_gets_one_fresh_full_rescan(self):
         calls = []
         scopes = []
