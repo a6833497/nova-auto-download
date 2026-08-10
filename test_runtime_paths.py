@@ -44,6 +44,8 @@ class RuntimePathsTest(unittest.TestCase):
     def test_linky_hourly_pins_backend_release_and_persists_receipt(self):
         source = (ROOT / "linke_live_refresh.sh").read_text(encoding="utf-8")
         self.assertLess(source.index("--preflight-entry linke_live_refresh.sh"), source.index("linky_sync_runner.py"))
+        self.assertLess(source.index('flock 9'), source.index("linky_sync_runner.py"))
+        self.assertIn('DATA_WRITE_LOCK="${NOVA_DATA_WRITE_LOCK:-/tmp/nova-data-write.lock}"', source)
         self.assertIn('BACKEND_API_DIR="$(readlink -f "$BACKEND_CURRENT/api")"', source)
         self.assertIn('"$TSX_BIN" "$PROJECTION_SCRIPT"', source)
         self.assertNotIn("npx tsx", source)
