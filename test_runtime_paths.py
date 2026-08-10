@@ -35,6 +35,20 @@ class RuntimePathsTest(unittest.TestCase):
         self.assertLess(heal.index("--preflight-entry bi-data-heal.sh || exit $?"), heal.index("TOTAL_COUNT=$(run_sql"))
         self.assertLess(timo_daily.index("--preflight-entry sync-timo-external-daily.sh || exit $?"), timo_daily.index('exec "$SCRIPT_DIR/sync-timo-external.sh"'))
 
+    def test_active_database_clients_use_protected_pgpass_file(self):
+        expected = {
+            "daily-sync.sh": "PGPASSFILE",
+            "bi-data-heal.sh": "PGPASSFILE",
+            "feishu-notify.py": "PGPASSFILE",
+            "ceo-daily-brief.py": "PGPASSFILE",
+        }
+        forbidden = ("PGPASSWORD=", "PG_PASS =", 'password="')
+        for name, marker in expected.items():
+            source = (ROOT / name).read_text(encoding="utf-8")
+            self.assertIn(marker, source, name)
+            for token in forbidden:
+                self.assertNotIn(token, source, f"{name}: {token}")
+
     def test_every_linky_entrypoint_declares_runtime_requirements(self):
         policy = json.loads((ROOT / "runtime-closure-policy.json").read_text(encoding="utf-8"))
         requirements = policy["runtimeRequirements"]

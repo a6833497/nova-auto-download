@@ -22,6 +22,7 @@ NOTIFY="${NOVA_NOTIFY_SCRIPT:-$SCRIPT_DIR/feishu-notify.py}"
 DAILY_SYNC="${NOVA_DAILY_SYNC_COMMAND:-$SCRIPT_DIR/daily-sync.sh}"
 ATTEMPT_FILE=/tmp/bi-heal-attempts.txt
 GUILD_DROP_RATIO=0.5
+export PGPASSFILE="${NOVA_PGPASSFILE:-/home/ubuntu/.config/nova/pgpass}"
 
 python3 "$SCRIPT_DIR/verify_runtime_closure.py" --preflight-entry bi-data-heal.sh || exit $?
 
@@ -31,12 +32,12 @@ log() {
 
 run_sql() {
   # 用 stdin 喂 SQL，避免 bash 双层引号转义
-  PGPASSWORD='Nova2026pg!' psql -U nova_app -h localhost -d nova_dashboard -t -A -c "$1" 2>&1
+  psql -U nova_app -h localhost -d nova_dashboard -t -A -c "$1" 2>&1
 }
 
 run_sql_stdin() {
   # 通过 stdin 喂多行 SQL，保留引号
-  PGPASSWORD='Nova2026pg!' psql -U nova_app -h localhost -d nova_dashboard -t -A -f /dev/stdin 2>&1
+  psql -U nova_app -h localhost -d nova_dashboard -t -A -f /dev/stdin 2>&1
 }
 
 DATE_YESTERDAY=$(TZ=Asia/Shanghai date -d 'yesterday' +%Y-%m-%d)

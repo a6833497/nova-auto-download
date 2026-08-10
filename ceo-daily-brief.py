@@ -15,7 +15,8 @@ YESTERDAY = (datetime.now(CST) - timedelta(days=1)).strftime("%Y-%m-%d")
 DAY_BEFORE = (datetime.now(CST) - timedelta(days=2)).strftime("%Y-%m-%d")
 WEEKDAY = datetime.now(CST).weekday()  # 0=周一
 
-PG_CONN = dict(host="127.0.0.1", port=5432, database="nova_dashboard", user="nova_app", password="Nova2026pg!")
+os.environ.setdefault("PGPASSFILE", os.getenv("NOVA_PGPASSFILE", "/home/ubuntu/.config/nova/pgpass"))
+PG_CONN = dict(host="127.0.0.1", port=5432, database="nova_dashboard", user="nova_app")
 CONFIG_PATH = "/home/ubuntu/feishu-sync/config.json"
 
 def ts_range(date_str):

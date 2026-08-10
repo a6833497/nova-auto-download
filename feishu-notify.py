@@ -37,8 +37,8 @@ from datetime import datetime, timezone, timedelta
 CONFIG_PATH = "/home/ubuntu/feishu-sync/config.json"
 PG_USER = "nova_app"
 PG_DB = "nova_dashboard"
-PG_PASS = "Nova2026pg!"
 PG_HOST = "localhost"
+PGPASS_FILE = os.getenv("NOVA_PGPASSFILE", "/home/ubuntu/.config/nova/pgpass")
 
 CST = timezone(timedelta(hours=8))
 
@@ -178,7 +178,7 @@ def is_offwork_hours() -> bool:
 def pg_exec(sql: str, params: list = None) -> str:
     """通过 psql 执行 SQL，返回 stdout（容错：失败时返回 ''）"""
     env = os.environ.copy()
-    env["PGPASSWORD"] = PG_PASS
+    env["PGPASSFILE"] = PGPASS_FILE
     args = ["psql", "-U", PG_USER, "-h", PG_HOST, "-d", PG_DB, "-t", "-A", "-q"]
     if params:
         # 用 prepared 形式更安全；这里简化用 -v 替换

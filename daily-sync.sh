@@ -28,7 +28,7 @@ export PLAYWRIGHT_BROWSERS_PATH=0
 API_DIR="/home/ubuntu/nova-backend-current/api"
 STATE_ROOT="${NOVA_STATE_ROOT:-/home/ubuntu/nova-auto-download/state}"
 NOTIFY_SCRIPT="${NOVA_NOTIFY_SCRIPT:-$SCRIPT_DIR/feishu-notify.py}"
-export PGPASSWORD="Nova2026pg!"
+export PGPASSFILE="${NOVA_PGPASSFILE:-/home/ubuntu/.config/nova/pgpass}"
 PG="psql -h 127.0.0.1 -U nova_app -d nova_dashboard -tAc"
 
 python3 "$SCRIPT_DIR/verify_runtime_closure.py" --preflight-entry daily-sync.sh || exit $?
