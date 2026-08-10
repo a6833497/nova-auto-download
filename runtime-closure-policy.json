@@ -59,6 +59,14 @@
     "sync-timo-external-daily.sh": {
       "nodePackages": [],
       "playwrightBrowser": false
+    },
+    "linke_live_refresh.sh": {
+      "nodePackages": [],
+      "playwrightBrowser": false
+    },
+    "linke_ledger_daily.sh": {
+      "nodePackages": [],
+      "playwrightBrowser": false
     }
   },
   "executableReleaseFiles": [
