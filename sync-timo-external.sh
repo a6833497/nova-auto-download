@@ -7,9 +7,12 @@ API_DIR=${TIMO_API_DIR:-/home/ubuntu/nova-backend-current/api}
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 DISPLAY_TIME_REBUILDER=${TIMO_DISPLAY_TIME_REBUILDER:-$SCRIPT_DIR/rebuild_display_time.py}
 SYNC_WINDOW=${TIMO_SYNC_WINDOW:-daily}
+DATA_WRITE_LOCK="${NOVA_DATA_WRITE_LOCK:-/tmp/nova-data-write.lock}"
 
 exec 9>/tmp/timo-external-sync.lock
 flock -n 9 || exit 75
+exec 8>"$DATA_WRITE_LOCK"
+flock 8
 
 today=$(TZ=Asia/Shanghai date +%F)
 yesterday=$(TZ=Asia/Shanghai date -d yesterday +%F)

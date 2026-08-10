@@ -12,6 +12,9 @@ class TimoSyncRunnerContractTest(unittest.TestCase):
     def test_uses_one_non_blocking_production_lock(self):
         self.assertIn("exec 9>/tmp/timo-external-sync.lock", RUNNER)
         self.assertIn("flock -n 9 || exit 75", RUNNER)
+        self.assertIn('DATA_WRITE_LOCK="${NOVA_DATA_WRITE_LOCK:-/tmp/nova-data-write.lock}"', RUNNER)
+        self.assertLess(RUNNER.index("flock -n 9"), RUNNER.index("flock 8"))
+        self.assertLess(RUNNER.index("flock 8"), RUNNER.index("sync-timo-external.ts"))
 
     def test_consumes_canonical_owner_projection_without_legacy_rebuild(self):
         self.assertNotIn("sync-timo-ownership", RUNNER)
@@ -40,8 +43,6 @@ class TimoSyncRunnerContractTest(unittest.TestCase):
     def test_daily_wrapper_uses_the_single_runner(self):
         self.assertIn("TIMO_SYNC_WINDOW=daily", DAILY)
         self.assertIn('SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)"', DAILY)
-        self.assertIn('DATA_WRITE_LOCK="${NOVA_DATA_WRITE_LOCK:-/tmp/nova-data-write.lock}"', DAILY)
-        self.assertIn("flock 8", DAILY)
         self.assertIn('exec "$SCRIPT_DIR/sync-timo-external.sh" "$@"', DAILY)
         self.assertNotIn("/home/ubuntu/nova-auto-download/sync-timo-external.sh", DAILY)
 
