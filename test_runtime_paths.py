@@ -34,6 +34,7 @@ class RuntimePathsTest(unittest.TestCase):
         self.assertLess(daily.index("--preflight-entry daily-sync.sh || exit $?"), daily.index('echo $$ > "$LOCK_FILE"'))
         self.assertLess(heal.index("--preflight-entry bi-data-heal.sh || exit $?"), heal.index("TOTAL_COUNT=$(run_sql"))
         self.assertLess(timo_daily.index("--preflight-entry sync-timo-external-daily.sh || exit $?"), timo_daily.index('exec "$SCRIPT_DIR/sync-timo-external.sh"'))
+        self.assertLess(timo_daily.index("flock 8"), timo_daily.index('exec "$SCRIPT_DIR/sync-timo-external.sh"'))
 
     def test_every_linky_entrypoint_declares_runtime_requirements(self):
         policy = json.loads((ROOT / "runtime-closure-policy.json").read_text(encoding="utf-8"))

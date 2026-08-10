@@ -40,6 +40,8 @@ class TimoSyncRunnerContractTest(unittest.TestCase):
     def test_daily_wrapper_uses_the_single_runner(self):
         self.assertIn("TIMO_SYNC_WINDOW=daily", DAILY)
         self.assertIn('SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)"', DAILY)
+        self.assertIn('DATA_WRITE_LOCK="${NOVA_DATA_WRITE_LOCK:-/tmp/nova-data-write.lock}"', DAILY)
+        self.assertIn("flock 8", DAILY)
         self.assertIn('exec "$SCRIPT_DIR/sync-timo-external.sh" "$@"', DAILY)
         self.assertNotIn("/home/ubuntu/nova-auto-download/sync-timo-external.sh", DAILY)
 
