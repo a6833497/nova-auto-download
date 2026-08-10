@@ -30,6 +30,7 @@ class TimoSyncRunnerContractTest(unittest.TestCase):
 
     def test_display_time_uses_exact_storage_identity_and_configured_database(self):
         self.assertIn("DATABASE_URL is required", DISPLAY_TIME)
+        self.assertIn("database_url_from_environment()", DISPLAY_TIME)
         self.assertNotIn("postgresql://", DISPLAY_TIME)
         self.assertIn("external_timo_revenue_metric_snapshot s", DISPLAY_TIME)
         self.assertIn("external_timo_revenue_daily_staging t", DISPLAY_TIME)

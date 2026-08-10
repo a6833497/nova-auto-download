@@ -49,6 +49,12 @@ class RuntimePathsTest(unittest.TestCase):
         self.assertNotIn("npx tsx", source)
         self.assertIn("write_runtime_receipt.py", source)
 
+    def test_display_time_rebuild_uses_the_canonical_database_loader(self):
+        source = (ROOT / "rebuild_display_time.py").read_text(encoding="utf-8")
+        self.assertIn("from linky_runtime import database_url_from_environment", source)
+        self.assertIn("database_url_from_environment()", source)
+        self.assertNotIn("os.environ.get('DATABASE_URL'", source)
+
 
 if __name__ == "__main__":
     unittest.main()

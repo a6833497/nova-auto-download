@@ -3,12 +3,13 @@
 import datetime as dt
 import hashlib
 import json
-import os
 import sys
 from collections import defaultdict
 from decimal import Decimal
 import psycopg2
 from psycopg2.extras import execute_values, Json
+
+from linky_runtime import database_url_from_environment
 
 VERSION = 'DISPLAY_TIME_V1'
 today_utc = dt.datetime.now(dt.timezone.utc).date()
@@ -16,7 +17,7 @@ date_from = dt.date.fromisoformat(sys.argv[1]) if len(sys.argv) > 1 else today_u
 date_to = dt.date.fromisoformat(sys.argv[2]) if len(sys.argv) > 2 else today_utc
 if date_from > date_to:
     raise SystemExit('from date must be <= to date')
-DSN = os.environ.get('DATABASE_URL','').split('?')[0]
+DSN = (database_url_from_environment() or '').split('?')[0]
 if not DSN:
     raise SystemExit('DATABASE_URL is required')
 conn = psycopg2.connect(DSN)
