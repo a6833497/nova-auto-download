@@ -23,6 +23,8 @@ from linky_runtime import atomic_json, database_url_from_environment
 DEFAULT_LOCK = "/tmp/linky-collection.lock"
 DEFAULT_STATE = "/home/ubuntu/nova-auto-download/state"
 DEFAULT_TOKENS = "/home/ubuntu/.config/nova/linky-guild-tokens.json"
+CONSISTENCY_RESCAN_DELAY_SECONDS = 2.0
+CONSISTENCY_DRIFT_MARKERS = ("duplicate raw SID", "response total_item changed")
 
 
 def observation_defaults(job_name: str, batch_id: str, lock_result: str) -> dict[str, Any]:
@@ -108,6 +110,30 @@ def load_guilds(tokens_path: Path, database_url: str, business_date: dt.date) ->
     if not guilds:
         raise RuntimeError("no active Linky source guilds matched guild_source_dictionary")
     return list(dict.fromkeys(guilds))
+
+
+def fetch_with_consistency_rescan(fetcher: Callable[..., FetchBundle], guild: str, day: str, *,
+                                  utc_today: dt.date, tokens_path: str | None,
+                                  deadline_monotonic: float, page_size: int | None,
+                                  sleeper: Callable[[float], None] = time.sleep) -> tuple[FetchBundle, int]:
+    """Retry one complete snapshot only for known cross-page consistency drift."""
+    for attempt in range(2):
+        scope = new_request_scope()
+        try:
+            options = {"request_scope": scope, "utc_today": utc_today,
+                "tokens_path": tokens_path, "deadline_monotonic": deadline_monotonic}
+            if page_size is not None:
+                options["page_size"] = page_size
+            return fetcher(guild, day, **options), attempt
+        except FetchScanError as error:
+            retryable = any(marker in str(error) for marker in CONSISTENCY_DRIFT_MARKERS)
+            enough_time = time.monotonic() + CONSISTENCY_RESCAN_DELAY_SECONDS < deadline_monotonic
+            if attempt or not retryable or not enough_time:
+                raise
+            sleeper(CONSISTENCY_RESCAN_DELAY_SECONDS)
+        finally:
+            scope.clear()
+    raise AssertionError("unreachable")
 
 
 def process_bundle(bundle: FetchBundle, *, job_name: str, batch_id: str,
@@ -210,18 +236,16 @@ def run_cycle(*, job_name: str, mode: str, guilds: list[str], utc_today: dt.date
         else:
             raise ValueError(f"unsupported runner mode: {mode}")
         for day, write_live, write_ledger, mark_closed in jobs:
-            scope = new_request_scope()
             try:
-                fetch_options = {"request_scope": scope, "utc_today": utc_today,
-                    "tokens_path": tokens_path, "deadline_monotonic": deadline}
-                if page_size is not None:
-                    fetch_options["page_size"] = page_size
-                bundle = fetcher(guild, day, **fetch_options)
+                bundle, consistency_rescans = fetch_with_consistency_rescan(fetcher, guild, day,
+                    utc_today=utc_today, tokens_path=tokens_path,
+                    deadline_monotonic=deadline, page_size=page_size)
                 process_bundle(bundle, job_name=job_name, batch_id=batch, database_url=database_url,
                     write_live=write_live, write_ledger=write_ledger, dry_run=dry_run,
                     snapshot_slot=snapshot_slot, state_root=state_root, mark_closed=mark_closed,
                     evidence_dir=archive, sink=record_sink)
-                results.append({"sourceGuild": guild, "businessDate": day, "status": "SUCCESS"})
+                results.append({"sourceGuild": guild, "businessDate": day, "status": "SUCCESS",
+                    "consistencyRescanCount": consistency_rescans})
             except Exception as error:
                 progress = error.observation if isinstance(error, FetchScanError) else {"endpoint": "batch"}
                 emit({**observation_defaults(job_name, batch, "ACQUIRED"), "businessDate": day,
@@ -232,8 +256,6 @@ def run_cycle(*, job_name: str, mode: str, guilds: list[str], utc_today: dt.date
                 cause = error.__cause__ if isinstance(error, FetchScanError) else error
                 if isinstance(cause, BatchDeadlineExceeded):
                     deadline_reached = True
-            finally:
-                scope.clear()
             if deadline_reached:
                 break
         if deadline_reached:

@@ -13,8 +13,8 @@ from unittest.mock import patch
 import linke_ledger_pull
 import linke_live_pull
 from linky_consumers import build_ledger_rows, build_live_rows, validate_complete_bundle
-from linky_fetch import EndpointScan, FetchBundle
-from linky_sync_runner import closure_complete, load_guilds, main, process_bundle, run_cycle, write_closure
+from linky_fetch import EndpointScan, FetchBundle, FetchScanError
+from linky_sync_runner import closure_complete, fetch_with_consistency_rescan, load_guilds, main, process_bundle, run_cycle, write_closure
 from linky_sync_runner import DEFAULT_TOKENS
 
 
@@ -45,6 +45,53 @@ def bundle(guild, day, complete=True):
 
 
 class LinkyRunnerTests(unittest.TestCase):
+    def test_consistency_drift_gets_one_fresh_full_rescan(self):
+        calls = []
+        scopes = []
+        def fetcher(guild, day, **kwargs):
+            calls.append((guild, day))
+            scopes.append(kwargs["request_scope"])
+            if len(calls) == 1:
+                kwargs["request_scope"]["stale"] = True
+                raise FetchScanError("Linky duplicate raw SID: page=3 sid=1",
+                    {"endpoint": "/api/guild/streamer_stat"})
+            return bundle(guild, day)
+        value, rescans = fetch_with_consistency_rescan(fetcher, "Nova", "20260810",
+            utc_today=dt.date(2026,8,10), tokens_path=None,
+            deadline_monotonic=10**12, page_size=5000, sleeper=lambda _delay: None)
+        self.assertEqual("Nova", value.source_guild)
+        self.assertEqual(1, rescans)
+        self.assertEqual(2, len(calls))
+        self.assertIsNot(scopes[0], scopes[1])
+        self.assertEqual([{}, {}], scopes)
+
+    def test_non_consistency_failure_is_not_rescanned(self):
+        calls = []
+        def fetcher(*_args, **_kwargs):
+            calls.append(1)
+            raise FetchScanError("Linky HTTP 401", {"endpoint": "/api/guild/streamer_stat"})
+        with self.assertRaisesRegex(FetchScanError, "401"):
+            fetch_with_consistency_rescan(fetcher, "Nova", "20260810",
+                utc_today=dt.date(2026,8,10), tokens_path=None,
+                deadline_monotonic=10**12, page_size=5000, sleeper=lambda _delay: None)
+        self.assertEqual(1, len(calls))
+
+    def test_persistent_consistency_drift_still_fails_closed(self):
+        calls = []
+        def fetcher(*_args, **_kwargs):
+            calls.append(1)
+            raise FetchScanError("Linky response total_item changed: page=4",
+                {"endpoint": "/api/guild/live_room_stat"})
+        with TemporaryDirectory() as root, patch("linky_sync_runner.process_bundle") as consumer, \
+                patch("linky_sync_runner.CONSISTENCY_RESCAN_DELAY_SECONDS", 0):
+            results = run_cycle(job_name="test", mode="target", guilds=["Whisky"],
+                utc_today=dt.date(2026,8,10), database_url=None, state_root=Path(root),
+                dry_run=True, target_date="20260810", fetcher=fetcher,
+                max_batch_seconds=60, batch_id="persistent", sink=lambda _value: None)
+        self.assertEqual(2, len(calls))
+        self.assertEqual("FAILED", results[0]["status"])
+        consumer.assert_not_called()
+
     def test_default_sources_are_active_dictionary_entries_with_configured_credentials(self):
         class Cursor:
             def __enter__(self): return self
