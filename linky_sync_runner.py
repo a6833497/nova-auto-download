@@ -22,6 +22,7 @@ from linky_runtime import atomic_json, database_url_from_environment
 
 DEFAULT_LOCK = "/tmp/linky-collection.lock"
 DEFAULT_STATE = "/home/ubuntu/nova-auto-download/state"
+DEFAULT_TOKENS = "/home/ubuntu/.config/nova/linky-guild-tokens.json"
 
 
 def observation_defaults(job_name: str, batch_id: str, lock_result: str) -> dict[str, Any]:
@@ -251,7 +252,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--job-name", required=True)
     parser.add_argument("--mode", choices=("hourly", "close-yesterday", "target"), required=True)
     parser.add_argument("--guild", action="append")
-    parser.add_argument("--tokens", default=os.getenv("LINKE_GUILD_TOKENS", "guild-tokens.json"))
+    parser.add_argument("--tokens", default=os.getenv("LINKE_GUILD_TOKENS", DEFAULT_TOKENS))
     parser.add_argument("--state-root", default=os.getenv("LINKE_STATE_ROOT", DEFAULT_STATE))
     parser.add_argument("--evidence-dir", default=os.getenv("LINKE_EVIDENCE_DIR",
         "/home/ubuntu/nova-auto-download/state/linky-ledger-evidence"))

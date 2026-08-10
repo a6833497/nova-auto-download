@@ -15,6 +15,12 @@ import linke_live_pull
 from linky_consumers import build_ledger_rows, build_live_rows, validate_complete_bundle
 from linky_fetch import EndpointScan, FetchBundle
 from linky_sync_runner import closure_complete, load_guilds, main, process_bundle, run_cycle, write_closure
+from linky_sync_runner import DEFAULT_TOKENS
+
+
+class RuntimeConfigurationTest(unittest.TestCase):
+    def test_default_tokens_live_in_the_stable_runtime_config_root(self):
+        self.assertEqual(DEFAULT_TOKENS, "/home/ubuntu/.config/nova/linky-guild-tokens.json")
 
 
 def scan(endpoint="/api/guild/streamer_stat", complete=True, raw=2, total=2):
