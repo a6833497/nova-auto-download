@@ -79,6 +79,7 @@ class RuntimeClosureTest(unittest.TestCase):
         self.assertFalse(timo["playwrightBrowser"])
         self.assertEqual(timo["nodePackages"], [])
         self.assertFalse(policy["runtimeRequirements"]["linke_live_refresh.sh"]["playwrightBrowser"])
+        self.assertFalse(policy["runtimeRequirements"]["linke_guild_summary_refresh.sh"]["playwrightBrowser"])
         external = policy["externalCodeDependencies"][0]
         self.assertEqual("NOVA_BACKEND_API_DIR", external["entryRootEnv"])
         self.assertIn("api/src/scripts/refresh-operations-projections.ts", external["files"])

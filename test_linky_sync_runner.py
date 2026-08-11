@@ -220,6 +220,14 @@ class LinkyRunnerTests(unittest.TestCase):
         self.assertEqual(0, code)
         self.assertEqual(["Nova-Indonesia"], cycle.call_args.kwargs["guilds"])
 
+    def test_dry_run_does_not_persist_current_day_accumulation(self):
+        with TemporaryDirectory() as root:
+            run_cycle(job_name="dry", mode="target", guilds=["Nova"],
+                utc_today=dt.date(2026,8,11), database_url=None, state_root=Path(root),
+                dry_run=True, target_date="20260811", fetcher=lambda guild, day, **_kwargs: bundle(guild, day),
+                batch_id="dry-cache", sink=lambda _value: None)
+            self.assertFalse((Path(root) / "linky-current-cache").exists())
+
     def test_daily_sync_reuses_bi_finality_chain_with_fourteen_day_lookback(self):
         source = Path("daily-sync.sh").read_text()
         self.assertIn("linky_voice_bi_batch.py", source)

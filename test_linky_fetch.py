@@ -86,19 +86,16 @@ class FetchGuildDayTest(unittest.TestCase):
         self.assertEqual(1, value.voice_room_scan.request_count)
         self.assertEqual(0, value.voice_room_scan.retry_count)
 
-    def test_current_day_allows_mutable_or_empty_summary_but_ended_day_does_not(self):
+    def test_current_day_and_ended_day_both_reject_unreconciled_or_empty_summary(self):
         def mutable(path):
             if "streamer_stat" in path:
                 return {"items": [{"sid": "1", "total_earns": 18}], "total": 1,
                     "total_item": {"total_earns": 0}}
             return {"items": [{"sid": "1", "receive_diamonds": 0}], "total": 1,
                 "total_item": {}}
-        current = fetch_guild_day("Nova", "20260805", call=mutable,
-            utc_today=dt.date(2026, 8, 5))
-        self.assertTrue(current.scan_complete)
-        self.assertEqual("18", current.streamer_scan.detail_amount)
-        self.assertEqual("0", current.streamer_scan.total_item_amount)
-        self.assertIsNone(current.voice_room_scan.total_item_amount)
+        with self.assertRaisesRegex(FetchScanError, "did not reconcile"):
+            fetch_guild_day("Nova", "20260805", call=mutable,
+                utc_today=dt.date(2026, 8, 5))
         with self.assertRaisesRegex(FetchScanError, "differs from total_item"):
             fetch_guild_day("Nova", "20260804", call=mutable,
                 utc_today=dt.date(2026, 8, 5))
@@ -179,6 +176,30 @@ class FetchGuildDayTest(unittest.TestCase):
         self.assertEqual(1, value.streamer_scan.total_change_count)
         self.assertEqual("8", value.streamer_scan.detail_amount)
         self.assertEqual("8", value.streamer_scan.total_item_amount)
+
+    def test_current_day_partial_rows_can_complete_a_later_round(self):
+        def partial(path):
+            if "streamer_stat" in path:
+                return {"items": [{"sid": "1", "total_earns": 5}], "total": 1,
+                    "total_item": {"total_earns": 8}}
+            return {"items": [], "total": 0,
+                "total_item": {"receive_diamonds": 0}}
+        with self.assertRaisesRegex(FetchScanError, "did not reconcile") as caught:
+            fetch_guild_day("Nova", "20260811", call=partial,
+                utc_today=dt.date(2026, 8, 11))
+        seed = caught.exception.cache_rows_by_endpoint
+        self.assertEqual("1", seed["/api/guild/streamer_stat"][0]["sid"])
+
+        def completing(path):
+            if "streamer_stat" in path:
+                return {"items": [{"sid": "4", "total_earns": 3}], "total": 1,
+                    "total_item": {"total_earns": 8}}
+            return {"items": [], "total": 0,
+                "total_item": {"receive_diamonds": 0}}
+        value = fetch_guild_day("Nova", "20260811", call=completing,
+            utc_today=dt.date(2026, 8, 11), mutable_seed_rows_by_endpoint=seed)
+        self.assertEqual(["1", "4"], [row["sid"] for row in value.streamer_rows])
+        self.assertEqual("8", value.streamer_scan.detail_amount)
 
     def test_request_scope_reuses_bundle_without_network_calls(self):
         calls = []

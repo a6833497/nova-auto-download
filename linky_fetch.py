@@ -19,7 +19,7 @@ from typing import Any, Callable, Dict, MutableMapping, Tuple
 import urllib.request
 import urllib.error
 
-from linky_api_pagination import configured_page_size, pull_pages
+from linky_api_pagination import MutableSnapshotIncomplete, configured_page_size, pull_pages
 
 
 LinkyCall = Callable[[str], Dict[str, Any]]
@@ -57,9 +57,11 @@ def _integer_like(value: Any) -> bool:
 
 
 class FetchScanError(RuntimeError):
-    def __init__(self, message: str, observation: dict[str, Any]):
+    def __init__(self, message: str, observation: dict[str, Any], *,
+                 cache_rows_by_endpoint: dict[str, tuple[dict[str, Any], ...]] | None = None):
         super().__init__(message)
         self.observation = observation
+        self.cache_rows_by_endpoint = cache_rows_by_endpoint or {}
 
 
 class BatchDeadlineExceeded(RuntimeError):
@@ -153,7 +155,8 @@ def new_request_scope() -> RequestScope:
 
 def _scan(call: LinkyCall, endpoint: str, day: str, value_key: str,
           page_size: int, require_summary: bool = True,
-          allow_mutable_summary_reconciliation: bool = False) -> tuple[tuple[dict[str, Any], ...], EndpointScan]:
+          allow_mutable_summary_reconciliation: bool = False,
+          mutable_seed_rows: tuple[dict[str, Any], ...] = ()) -> tuple[tuple[dict[str, Any], ...], EndpointScan]:
     started = time.monotonic()
     requests = 0
     starting_attempts = int(getattr(call, "attempt_count", 0))
@@ -177,7 +180,8 @@ def _scan(call: LinkyCall, endpoint: str, day: str, value_key: str,
     try:
         rows, pages = pull_pages(observed_call, endpoint, day, value_key,
             page_size=page_size, require_unique_sid=True, require_summary=require_summary,
-            allow_mutable_summary_reconciliation=allow_mutable_summary_reconciliation)
+            allow_mutable_summary_reconciliation=allow_mutable_summary_reconciliation,
+            _mutable_seed_rows={str(row["sid"]): row for row in mutable_seed_rows})
     except Exception as error:
         actual_requests = int(getattr(call, "attempt_count", starting_attempts + requests)) - starting_attempts
         retries = int(getattr(call, "retry_count", starting_retries)) - starting_retries
@@ -193,7 +197,12 @@ def _scan(call: LinkyCall, endpoint: str, day: str, value_key: str,
             "reportedTotalType": _json_value_type(observed_total, observed_total_present),
             "reportedTotalIntegerLike": _integer_like(observed_total),
             "requestedPageSize": page_size}
-        raise FetchScanError(str(error), observation) from error
+        cache_rows = {endpoint: error.rows} if isinstance(error, MutableSnapshotIncomplete) else None
+        if isinstance(error, MutableSnapshotIncomplete):
+            observation["detailAmount"] = str(error.detail_amount)
+            observation["totalItemAmount"] = str(error.summary_amount)
+        raise FetchScanError(str(error), observation,
+            cache_rows_by_endpoint=cache_rows) from error
     elapsed = time.monotonic() - started
     actual_requests = int(getattr(call, "attempt_count", starting_attempts + requests)) - starting_attempts
     retries = int(getattr(call, "retry_count", starting_retries)) - starting_retries
@@ -312,6 +321,7 @@ def fetch_guild_day(
     tokens_path: str | None = None,
     deadline_monotonic: float | None = None,
     page_size: int | None = None,
+    mutable_seed_rows_by_endpoint: dict[str, tuple[dict[str, Any], ...]] | None = None,
 ) -> FetchBundle:
     """Fetch both core endpoints completely before returning a reusable bundle.
 
@@ -320,7 +330,9 @@ def fetch_guild_day(
     """
     parsed_date = dt.datetime.strptime(business_date, "%Y%m%d").date()
     effective_today = utc_today or dt.datetime.now(dt.timezone.utc).date()
-    require_summary = parsed_date != effective_today
+    # A current-day detail snapshot is publishable only when it reconciles with
+    # the response summary. Empty or malformed summaries remain fail-closed.
+    require_summary = True
     resolved_page_size = configured_page_size(page_size)
     api_call = call or _authenticated_call(guild, tokens_path)
     def bounded_call(path: str) -> dict[str, Any]:
@@ -345,11 +357,21 @@ def fetch_guild_day(
     streamer_rows, streamer_scan = _scan(
         bounded_call, "/api/guild/streamer_stat", business_date, "total_earns",
         resolved_page_size, require_summary=require_summary,
-        allow_mutable_summary_reconciliation=parsed_date == effective_today)
-    room_rows, room_scan = _scan(
-        bounded_call, "/api/guild/live_room_stat", business_date, "receive_diamonds",
-        resolved_page_size, require_summary=require_summary,
-        allow_mutable_summary_reconciliation=parsed_date == effective_today)
+        allow_mutable_summary_reconciliation=parsed_date == effective_today,
+        mutable_seed_rows=(mutable_seed_rows_by_endpoint or {}).get(
+            "/api/guild/streamer_stat", ()))
+    try:
+        room_rows, room_scan = _scan(
+            bounded_call, "/api/guild/live_room_stat", business_date, "receive_diamonds",
+            resolved_page_size, require_summary=require_summary,
+            allow_mutable_summary_reconciliation=parsed_date == effective_today,
+            mutable_seed_rows=(mutable_seed_rows_by_endpoint or {}).get(
+                "/api/guild/live_room_stat", ()))
+    except FetchScanError as error:
+        if parsed_date == effective_today:
+            error.cache_rows_by_endpoint.setdefault(
+                "/api/guild/streamer_stat", streamer_rows)
+        raise
 
     online_sids: frozenset[int] = frozenset()
     online_scan: EndpointScan | None = None

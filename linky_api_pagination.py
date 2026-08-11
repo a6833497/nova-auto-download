@@ -12,6 +12,17 @@ DEFAULT_PAGE_SIZE = 5000
 MAX_PAGES = 1000
 
 
+class MutableSnapshotIncomplete(RuntimeError):
+    """A current-day scan produced useful rows but not a publishable snapshot."""
+
+    def __init__(self, message: str, rows: list[dict[str, Any]], detail_amount: Decimal,
+                 summary_amount: Decimal):
+        super().__init__(message)
+        self.rows = tuple(rows)
+        self.detail_amount = detail_amount
+        self.summary_amount = summary_amount
+
+
 def configured_page_size(explicit: int | None = None) -> int:
     """Resolve the single authoritative page size for core Linky scans."""
     value = explicit if explicit is not None else os.getenv("LINKY_PAGE_SIZE", str(DEFAULT_PAGE_SIZE))
@@ -138,6 +149,18 @@ def pull_pages(call: Callable[[str], dict[str, Any]], path: str, day: str, value
     detail_amount = sum((_amount(row.get(value_key)) for row in rows), Decimal(0))
     summary_amount = _amount(total_item.get(value_key)) if total_item is not None and value_key in total_item else None
     if require_summary and detail_amount != summary_amount:
+        if allow_mutable_summary_reconciliation and summary_amount is not None:
+            if _mutable_reconciliation_pass_count == 0:
+                return pull_pages(call, path, day, value_key, page_size=resolved_page_size,
+                    max_pages=max_pages, require_unique_sid=require_unique_sid,
+                    require_summary=require_summary,
+                    allow_mutable_summary_reconciliation=True,
+                    _mutable_seed_rows=positive_by_sid,
+                    _mutable_reconciliation_pass_count=1)
+            raise MutableSnapshotIncomplete(
+                f"Linky mutable pagination drift did not reconcile after merge: "
+                f"detail={detail_amount} summary={summary_amount}",
+                rows, detail_amount, summary_amount)
         raise RuntimeError(f"Linky detail amount differs from total_item: detail={detail_amount} summary={summary_amount}")
     if allow_mutable_summary_reconciliation and (duplicate_sid_count or total_item_change_count):
         if summary_amount is None:
@@ -150,9 +173,10 @@ def pull_pages(call: Callable[[str], dict[str, Any]], path: str, day: str, value
                     allow_mutable_summary_reconciliation=True,
                     _mutable_seed_rows=positive_by_sid,
                     _mutable_reconciliation_pass_count=1)
-            raise RuntimeError(
+            raise MutableSnapshotIncomplete(
                 f"Linky mutable pagination drift did not reconcile after merge: "
-                f"detail={detail_amount} summary={summary_amount}")
+                f"detail={detail_amount} summary={summary_amount}",
+                rows, detail_amount, summary_amount)
     final_count = evidence[-1]["rawCount"] if evidence else 0
     expected_final = (reported_total or 0) % resolved_page_size or (
         resolved_page_size if (reported_total or 0) else 0)

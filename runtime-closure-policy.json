@@ -42,6 +42,7 @@
     "sync-timo-external-daily.sh",
     "api-ingest.sh",
     "linke_live_refresh.sh",
+    "linke_guild_summary_refresh.sh",
     "linke_ledger_daily.sh"
   ],
   "environmentExecutableOverrides": {
@@ -66,6 +67,10 @@
       "nodePackages": [],
       "playwrightBrowser": false
     },
+    "linke_guild_summary_refresh.sh": {
+      "nodePackages": [],
+      "playwrightBrowser": false
+    },
     "linke_ledger_daily.sh": {
       "nodePackages": [],
       "playwrightBrowser": false
@@ -78,6 +83,7 @@
     "sync-timo-external.sh",
     "api-ingest.sh",
     "linke_live_refresh.sh",
+    "linke_guild_summary_refresh.sh",
     "linke_ledger_daily.sh",
     "verify_runtime_closure.py"
   ]

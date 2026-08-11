@@ -13,6 +13,7 @@ from pathlib import Path
 import re
 import time
 import uuid
+from decimal import Decimal, InvalidOperation
 from typing import Any, Callable
 
 from linky_consumers import write_daily_ledger, write_live_views
@@ -51,6 +52,40 @@ def emit(record: dict[str, Any], sink: Callable[[str], None] = print) -> None:
 
 def closure_path(state_root: Path, business_date: str, guild: str) -> Path:
     return state_root / "linky-api-closure" / f"{business_date}-{guild}.json"
+
+
+def current_cache_path(state_root: Path, business_date: str, guild: str) -> Path:
+    identity = hashlib.sha256(guild.encode()).hexdigest()[:16]
+    return state_root / "linky-current-cache" / f"{business_date}-{identity}.json"
+
+
+def load_current_cache(state_root: Path, business_date: str, guild: str) -> dict[str, tuple[dict[str, Any], ...]]:
+    try:
+        value = json.loads(current_cache_path(state_root, business_date, guild).read_text(encoding="utf-8"))
+    except (OSError, ValueError, TypeError):
+        return {}
+    if value.get("schemaVersion") != 1 or value.get("businessDate") != business_date or value.get("sourceGuild") != guild:
+        return {}
+    endpoints = value.get("endpoints")
+    if not isinstance(endpoints, dict):
+        return {}
+    result: dict[str, tuple[dict[str, Any], ...]] = {}
+    for endpoint in ("/api/guild/streamer_stat", "/api/guild/live_room_stat"):
+        rows = endpoints.get(endpoint)
+        if isinstance(rows, list) and all(isinstance(row, dict) and str(row.get("sid") or "").strip() for row in rows):
+            result[endpoint] = tuple(rows)
+    return result
+
+
+def write_current_cache(state_root: Path, business_date: str, guild: str,
+                        rows_by_endpoint: dict[str, tuple[dict[str, Any], ...]], status: str) -> None:
+    if not rows_by_endpoint:
+        return
+    atomic_json(current_cache_path(state_root, business_date, guild), {
+        "schemaVersion": 1, "businessDate": business_date, "sourceGuild": guild,
+        "status": status, "updatedAt": dt.datetime.now(dt.timezone.utc).isoformat(),
+        "endpoints": {endpoint: list(rows) for endpoint, rows in rows_by_endpoint.items()},
+    })
 
 
 def closure_complete(state_root: Path, business_date: str, guild: str) -> bool:
@@ -125,13 +160,16 @@ def load_guilds(tokens_path: Path, database_url: str, business_date: dt.date) ->
 def fetch_with_consistency_rescan(fetcher: Callable[..., FetchBundle], guild: str, day: str, *,
                                   utc_today: dt.date, tokens_path: str | None,
                                   deadline_monotonic: float, page_size: int | None,
+                                  mutable_seed_rows_by_endpoint: dict[str, tuple[dict[str, Any], ...]] | None = None,
                                   sleeper: Callable[[float], None] = time.sleep) -> tuple[FetchBundle, int]:
     """Retry one complete snapshot only for known cross-page consistency drift."""
+    seeds = mutable_seed_rows_by_endpoint or {}
     for attempt in range(2):
         scope = new_request_scope()
         try:
             options = {"request_scope": scope, "utc_today": utc_today,
-                "tokens_path": tokens_path, "deadline_monotonic": deadline_monotonic}
+                "tokens_path": tokens_path, "deadline_monotonic": deadline_monotonic,
+                "mutable_seed_rows_by_endpoint": seeds}
             if page_size is not None:
                 options["page_size"] = page_size
             return fetcher(guild, day, **options), attempt
@@ -140,6 +178,15 @@ def fetch_with_consistency_rescan(fetcher: Callable[..., FetchBundle], guild: st
             enough_time = time.monotonic() + CONSISTENCY_RESCAN_DELAY_SECONDS < deadline_monotonic
             if attempt or not retryable or not enough_time:
                 raise
+            next_seeds = error.cache_rows_by_endpoint
+            try:
+                detail = Decimal(str(error.observation.get("detailAmount")))
+                summary = Decimal(str(error.observation.get("totalItemAmount")))
+                if detail > summary:
+                    next_seeds = {}
+            except (InvalidOperation, TypeError, ValueError):
+                pass
+            seeds = next_seeds
             sleeper(CONSISTENCY_RESCAN_DELAY_SECONDS)
         finally:
             scope.clear()
@@ -247,9 +294,16 @@ def run_cycle(*, job_name: str, mode: str, guilds: list[str], utc_today: dt.date
             raise ValueError(f"unsupported runner mode: {mode}")
         for day, write_live, write_ledger, mark_closed in jobs:
             try:
+                current_cache = load_current_cache(state_root, day, guild) if day == today_ymd else {}
                 bundle, consistency_rescans = fetch_with_consistency_rescan(fetcher, guild, day,
                     utc_today=utc_today, tokens_path=tokens_path,
-                    deadline_monotonic=deadline, page_size=page_size)
+                    deadline_monotonic=deadline, page_size=page_size,
+                    mutable_seed_rows_by_endpoint=current_cache)
+                if day == today_ymd and not dry_run:
+                    write_current_cache(state_root, day, guild, {
+                        "/api/guild/streamer_stat": bundle.streamer_rows,
+                        "/api/guild/live_room_stat": bundle.voice_room_rows,
+                    }, "COMPLETE")
                 process_bundle(bundle, job_name=job_name, batch_id=batch, database_url=database_url,
                     write_live=write_live, write_ledger=write_ledger, dry_run=dry_run,
                     snapshot_slot=snapshot_slot, state_root=state_root, mark_closed=mark_closed,
@@ -257,6 +311,9 @@ def run_cycle(*, job_name: str, mode: str, guilds: list[str], utc_today: dt.date
                 results.append({"sourceGuild": guild, "businessDate": day, "status": "SUCCESS",
                     "consistencyRescanCount": consistency_rescans})
             except Exception as error:
+                if day == today_ymd and not dry_run and isinstance(error, FetchScanError):
+                    write_current_cache(state_root, day, guild,
+                        error.cache_rows_by_endpoint, "ACCUMULATING")
                 progress = error.observation if isinstance(error, FetchScanError) else {"endpoint": "batch"}
                 emit({**observation_defaults(job_name, batch, "ACQUIRED"), "businessDate": day,
                     "sourceGuild": guild, **progress, "errorType": type(error).__name__,
