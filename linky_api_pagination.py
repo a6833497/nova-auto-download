@@ -38,16 +38,20 @@ def _canonical_checksum(values: list[tuple[str, str]]) -> str:
 def pull_pages(call: Callable[[str], dict[str, Any]], path: str, day: str, value_key: str,
                page_size: int | None = None, max_pages: int = MAX_PAGES,
                require_unique_sid: bool = True,
-               require_summary: bool = False) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+               require_summary: bool = False,
+               allow_mutable_summary_reconciliation: bool = False) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """Read all raw rows. Filtering zero values never controls pagination."""
     resolved_page_size = configured_page_size(page_size)
     positive_by_sid: dict[str, dict[str, Any]] = {}
     evidence: list[dict[str, Any]] = []
     seen_raw_sids: set[str] = set()
+    raw_rows_by_sid: dict[str, dict[str, Any]] = {}
     seen_response_checksums: dict[str, int] = {}
     seen_sid_set_checksums: dict[str, int] = {}
     reported_total: int | None = None
     total_item: dict[str, Any] | None = None
+    duplicate_sid_count = 0
+    total_item_change_count = 0
     raw_count = 0
     for page in range(1, max_pages + 1):
         query = f"{path}?begin={day}&end={day}&page_num={page}&page_size={resolved_page_size}&type=0"
@@ -67,16 +71,27 @@ def pull_pages(call: Callable[[str], dict[str, Any]], path: str, day: str, value
         if sid_set_checksum in seen_sid_set_checksums:
             raise RuntimeError(f"Linky repeated SID set: page={page} repeats={seen_sid_set_checksums[sid_set_checksum]}")
         page_sids: set[str] = set()
-        duplicates: set[str] = set()
+        intra_page_duplicates: set[str] = set()
+        cross_page_duplicates: set[str] = set()
         for sid in raw_sids:
-            if sid in page_sids or sid in seen_raw_sids:
-                duplicates.add(sid)
+            if sid in page_sids:
+                intra_page_duplicates.add(sid)
+            elif sid in seen_raw_sids:
+                cross_page_duplicates.add(sid)
             page_sids.add(sid)
-        if duplicates and require_unique_sid:
-            raise RuntimeError(f"Linky duplicate raw SID: page={page} sid={sorted(duplicates)[0]}")
-        if duplicates:
-            raise RuntimeError(f"Linky duplicate raw SID cannot be silently overwritten: page={page} sid={sorted(duplicates)[0]}")
+        if intra_page_duplicates:
+            raise RuntimeError(f"Linky duplicate raw SID within page: page={page} sid={sorted(intra_page_duplicates)[0]}")
+        if cross_page_duplicates and (require_unique_sid and not allow_mutable_summary_reconciliation):
+            raise RuntimeError(f"Linky duplicate raw SID across pages: page={page} sid={sorted(cross_page_duplicates)[0]}")
+        if cross_page_duplicates and not allow_mutable_summary_reconciliation:
+            raise RuntimeError(f"Linky duplicate raw SID cannot be silently overwritten: page={page} sid={sorted(cross_page_duplicates)[0]}")
+        rows_for_page = {str(row["sid"]).strip(): row for row in items}
+        for sid in cross_page_duplicates:
+            if raw_rows_by_sid[sid] != rows_for_page[sid]:
+                raise RuntimeError(f"Linky duplicate raw SID changed across pages: page={page} sid={sid}")
+        duplicate_sid_count += len(cross_page_duplicates)
         seen_raw_sids.update(raw_sids)
+        raw_rows_by_sid.update(rows_for_page)
         seen_response_checksums[response_checksum] = page
         seen_sid_set_checksums[sid_set_checksum] = page
         raw_count += len(items)
@@ -98,7 +113,13 @@ def pull_pages(call: Callable[[str], dict[str, Any]], path: str, day: str, value
         elif numeric_total != reported_total:
             raise RuntimeError(f"Linky response total changed: page={page}")
         elif payload.get("total_item") not in (None, {}) and payload.get("total_item") != total_item:
-            raise RuntimeError(f"Linky response total_item changed: page={page}")
+            if not allow_mutable_summary_reconciliation:
+                raise RuntimeError(f"Linky response total_item changed: page={page}")
+            candidate = payload.get("total_item")
+            if not isinstance(candidate, dict) or value_key not in candidate:
+                raise RuntimeError(f"Linky mutable response total_item has no {value_key}: page={page}")
+            total_item = candidate
+            total_item_change_count += 1
         if raw_count > reported_total:
             raise RuntimeError(f"Linky raw rows exceed reported total: page={page}")
         evidence.append({"page": page, "rawCount": len(items), "positiveCount": sum(
@@ -116,6 +137,12 @@ def pull_pages(call: Callable[[str], dict[str, Any]], path: str, day: str, value
     summary_amount = _amount(total_item.get(value_key)) if total_item is not None and value_key in total_item else None
     if require_summary and detail_amount != summary_amount:
         raise RuntimeError(f"Linky detail amount differs from total_item: detail={detail_amount} summary={summary_amount}")
+    if allow_mutable_summary_reconciliation and (duplicate_sid_count or total_item_change_count):
+        if summary_amount is None:
+            raise RuntimeError("Linky mutable pagination drift has no reconcilable total_item")
+        if detail_amount != summary_amount:
+            raise RuntimeError(
+                f"Linky mutable pagination drift did not reconcile: detail={detail_amount} summary={summary_amount}")
     final_count = evidence[-1]["rawCount"] if evidence else 0
     expected_final = (reported_total or 0) % resolved_page_size or (
         resolved_page_size if (reported_total or 0) else 0)
@@ -125,8 +152,8 @@ def pull_pages(call: Callable[[str], dict[str, Any]], path: str, day: str, value
         evidence[-1]["scanSummary"] = {
             "requestedPageSize": resolved_page_size,
             "uniqueSidCount": len(seen_raw_sids),
-            "duplicateSidCount": 0,
-            "totalChangeCount": 0,
+            "duplicateSidCount": duplicate_sid_count,
+            "totalChangeCount": total_item_change_count,
             "repeatedPageCount": 0,
             "detailAmount": str(detail_amount),
             "totalItemAmount": str(summary_amount) if summary_amount is not None else None,

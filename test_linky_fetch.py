@@ -155,6 +155,31 @@ class FetchGuildDayTest(unittest.TestCase):
         self.assertTrue(value.scan_complete)
         self.assertEqual(0, value.streamer_scan.reported_total)
 
+    def test_current_day_reconciles_exact_cross_page_duplicate_without_hiding_it(self):
+        def call(path):
+            if "streamer_stat" in path:
+                page = int(path.split("page_num=")[1].split("&")[0])
+                return {
+                    1: {"items": [{"sid": "1", "total_earns": 5},
+                                   {"sid": "2", "total_earns": 0}],
+                        "total": 4, "total_item": {"total_earns": 5}},
+                    2: {"items": [{"sid": "2", "total_earns": 0},
+                                   {"sid": "4", "total_earns": 3}],
+                        "total": 4, "total_item": {"total_earns": 8}},
+                }[page]
+            if "live_room_stat" in path:
+                return {"items": [], "total": 0, "total_item": {"receive_diamonds": 0}}
+            return {"items": [], "total": 0, "next_page": False}
+
+        value = fetch_guild_day("Nova", "20260811", call=call,
+            utc_today=dt.date(2026, 8, 11), page_size=2)
+        self.assertTrue(value.scan_complete)
+        self.assertEqual(["1", "4"], [row["sid"] for row in value.streamer_rows])
+        self.assertEqual(1, value.streamer_scan.duplicate_sid_count)
+        self.assertEqual(1, value.streamer_scan.total_change_count)
+        self.assertEqual("8", value.streamer_scan.detail_amount)
+        self.assertEqual("8", value.streamer_scan.total_item_amount)
+
     def test_request_scope_reuses_bundle_without_network_calls(self):
         calls = []
         scope = new_request_scope()

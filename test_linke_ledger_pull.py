@@ -59,7 +59,7 @@ class PaginationTests(unittest.TestCase):
         self.assertEqual(rows[-1]["sid"], "later")
         self.assertEqual([x["rawCount"] for x in evidence], [500, 1])
 
-    def test_duplicate_positive_sid_fails_instead_of_overwriting(self):
+    def test_duplicate_positive_sid_within_page_fails_instead_of_overwriting(self):
         pages = {
             1: {"items": [{"sid": str(i), "v": 1} for i in range(500)], "total": 502},
             2: {"items": [{"sid": "39348432", "v": 1}, {"sid": "39348432", "v": 2}], "total": 502},
@@ -69,6 +69,56 @@ class PaginationTests(unittest.TestCase):
             return pages[page]
         with self.assertRaisesRegex(RuntimeError, "duplicate raw SID"):
             pull_pages(call, "/x", "20260728", "v", page_size=500)
+
+    def test_mutable_cross_page_duplicate_requires_exact_summary_reconciliation(self):
+        pages = {
+            1: {"items": [{"sid": "1", "v": 5}, {"sid": "2", "v": 0}],
+                "total": 4, "total_item": {"v": 5}},
+            2: {"items": [{"sid": "2", "v": 0}, {"sid": "4", "v": 3}],
+                "total": 4, "total_item": {"v": 8}},
+        }
+        call = lambda path: pages[int(path.split("page_num=")[1].split("&")[0])]
+        rows, evidence = pull_pages(call, "/x", "20260811", "v", page_size=2,
+            require_summary=False, allow_mutable_summary_reconciliation=True)
+        self.assertEqual(["1", "4"], [row["sid"] for row in rows])
+        summary = evidence[-1]["scanSummary"]
+        self.assertEqual(1, summary["duplicateSidCount"])
+        self.assertEqual(1, summary["totalChangeCount"])
+        self.assertEqual("8", summary["detailAmount"])
+        self.assertEqual("8", summary["totalItemAmount"])
+
+    def test_mutable_cross_page_duplicate_with_changed_row_fails_closed(self):
+        pages = {
+            1: {"items": [{"sid": "1", "v": 5}, {"sid": "2", "v": 1}],
+                "total": 4, "total_item": {"v": 6}},
+            2: {"items": [{"sid": "2", "v": 2}, {"sid": "4", "v": 3}],
+                "total": 4, "total_item": {"v": 10}},
+        }
+        call = lambda path: pages[int(path.split("page_num=")[1].split("&")[0])]
+        with self.assertRaisesRegex(RuntimeError, "changed across pages"):
+            pull_pages(call, "/x", "20260811", "v", page_size=2,
+                allow_mutable_summary_reconciliation=True)
+
+    def test_mutable_cross_page_duplicate_with_missing_positive_row_fails_closed(self):
+        pages = {
+            1: {"items": [{"sid": "1", "v": 5}, {"sid": "2", "v": 0}],
+                "total": 4, "total_item": {"v": 5}},
+            2: {"items": [{"sid": "2", "v": 0}, {"sid": "4", "v": 3}],
+                "total": 4, "total_item": {"v": 9}},
+        }
+        call = lambda path: pages[int(path.split("page_num=")[1].split("&")[0])]
+        with self.assertRaisesRegex(RuntimeError, "did not reconcile"):
+            pull_pages(call, "/x", "20260811", "v", page_size=2,
+                allow_mutable_summary_reconciliation=True)
+
+    def test_historical_cross_page_duplicate_remains_fail_closed(self):
+        pages = {
+            1: {"items": [{"sid": "1", "v": 5}, {"sid": "2", "v": 0}], "total": 4},
+            2: {"items": [{"sid": "2", "v": 0}, {"sid": "4", "v": 3}], "total": 4},
+        }
+        call = lambda path: pages[int(path.split("page_num=")[1].split("&")[0])]
+        with self.assertRaisesRegex(RuntimeError, "across pages"):
+            pull_pages(call, "/x", "20260810", "v", page_size=2)
 
     def test_total_change_and_raw_count_overflow_fail(self):
         pages = {1: {"items": [{"sid": "1", "v": 1}], "total": 2},

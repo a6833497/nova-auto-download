@@ -25,7 +25,11 @@ DEFAULT_LOCK = "/tmp/linky-collection.lock"
 DEFAULT_STATE = "/home/ubuntu/nova-auto-download/state"
 DEFAULT_TOKENS = "/home/ubuntu/.config/nova/linky-guild-tokens.json"
 CONSISTENCY_RESCAN_DELAY_SECONDS = 2.0
-CONSISTENCY_DRIFT_MARKERS = ("duplicate raw SID", "response total_item changed")
+CONSISTENCY_DRIFT_MARKERS = (
+    "duplicate raw SID",
+    "response total_item changed",
+    "mutable pagination drift",
+)
 BATCH_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
 
 
