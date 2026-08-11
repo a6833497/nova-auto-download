@@ -51,6 +51,7 @@ def pull_pages(call: Callable[[str], dict[str, Any]], path: str, day: str, value
                require_unique_sid: bool = True,
                require_summary: bool = False,
                allow_mutable_summary_reconciliation: bool = False,
+               fallback_page_size: int | None = None,
                _mutable_seed_rows: dict[str, dict[str, Any]] | None = None,
                _mutable_reconciliation_pass_count: int = 0) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """Read all raw rows. Filtering zero values never controls pagination."""
@@ -151,10 +152,12 @@ def pull_pages(call: Callable[[str], dict[str, Any]], path: str, day: str, value
     if require_summary and detail_amount != summary_amount:
         if allow_mutable_summary_reconciliation and summary_amount is not None:
             if _mutable_reconciliation_pass_count == 0:
-                return pull_pages(call, path, day, value_key, page_size=resolved_page_size,
+                return pull_pages(call, path, day, value_key,
+                    page_size=fallback_page_size or resolved_page_size,
                     max_pages=max_pages, require_unique_sid=require_unique_sid,
                     require_summary=require_summary,
                     allow_mutable_summary_reconciliation=True,
+                    fallback_page_size=fallback_page_size,
                     _mutable_seed_rows=positive_by_sid,
                     _mutable_reconciliation_pass_count=1)
             raise MutableSnapshotIncomplete(
@@ -167,10 +170,12 @@ def pull_pages(call: Callable[[str], dict[str, Any]], path: str, day: str, value
             raise RuntimeError("Linky mutable pagination drift has no reconcilable total_item")
         if detail_amount != summary_amount:
             if _mutable_reconciliation_pass_count == 0:
-                return pull_pages(call, path, day, value_key, page_size=resolved_page_size,
+                return pull_pages(call, path, day, value_key,
+                    page_size=fallback_page_size or resolved_page_size,
                     max_pages=max_pages, require_unique_sid=require_unique_sid,
                     require_summary=require_summary,
                     allow_mutable_summary_reconciliation=True,
+                    fallback_page_size=fallback_page_size,
                     _mutable_seed_rows=positive_by_sid,
                     _mutable_reconciliation_pass_count=1)
             raise MutableSnapshotIncomplete(

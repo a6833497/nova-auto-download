@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
+from unittest.mock import patch
 
 from linky_summary_runner import fetch_guild_summary, publish_summary
 
@@ -44,6 +45,21 @@ class LinkySummaryRunnerTest(unittest.TestCase):
             self.assertEqual("UNAVAILABLE", document["guilds"][1]["status"])
             persisted = json.loads(latest.read_text())
             self.assertEqual("PARTIAL", persisted["status"])
+
+    def test_batch_deadline_retains_prior_and_skips_remaining_network_calls(self):
+        with TemporaryDirectory() as root, patch("linky_summary_runner.time.monotonic", return_value=6):
+            state = Path(root)
+            latest = state / "linky-guild-summary" / "latest.json"
+            latest.parent.mkdir(parents=True)
+            latest.write_text(json.dumps({"guilds": [{"sourceGuild": "A",
+                "businessDate": "20260811", "chatIncome": "12", "roomIncome": "3"}]}))
+            calls = []
+            document, complete = publish_summary(state, ["A", "B"], "20260811", "deadline",
+                fetcher=lambda *_args: calls.append(1), deadline_monotonic=5)
+        self.assertFalse(complete)
+        self.assertEqual([], calls)
+        self.assertEqual("STALE", document["guilds"][0]["freshness"])
+        self.assertEqual("UNAVAILABLE", document["guilds"][1]["status"])
 
 
 if __name__ == "__main__":

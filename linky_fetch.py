@@ -68,6 +68,31 @@ class BatchDeadlineExceeded(RuntimeError):
     pass
 
 
+class GuildDeadlineExceeded(RuntimeError):
+    pass
+
+
+class EndpointDeadlineExceeded(RuntimeError):
+    pass
+
+
+def _positive_seconds(name: str, default: str) -> float:
+    try:
+        value = float(os.getenv(name, default))
+    except ValueError as error:
+        raise ValueError(f"{name} must be numeric") from error
+    if value <= 0:
+        raise ValueError(f"{name} must be positive")
+    return value
+
+
+def _fallback_page_size(primary: int) -> int:
+    value = configured_page_size(int(os.getenv("LINKY_FALLBACK_PAGE_SIZE", "4096")))
+    if value == primary:
+        value = 4999 if primary != 4999 else 4096
+    return value
+
+
 @dataclass(frozen=True)
 class EndpointScan:
     endpoint: str
@@ -156,6 +181,7 @@ def new_request_scope() -> RequestScope:
 def _scan(call: LinkyCall, endpoint: str, day: str, value_key: str,
           page_size: int, require_summary: bool = True,
           allow_mutable_summary_reconciliation: bool = False,
+          fallback_page_size: int | None = None,
           mutable_seed_rows: tuple[dict[str, Any], ...] = ()) -> tuple[tuple[dict[str, Any], ...], EndpointScan]:
     started = time.monotonic()
     requests = 0
@@ -181,6 +207,7 @@ def _scan(call: LinkyCall, endpoint: str, day: str, value_key: str,
         rows, pages = pull_pages(observed_call, endpoint, day, value_key,
             page_size=page_size, require_unique_sid=True, require_summary=require_summary,
             allow_mutable_summary_reconciliation=allow_mutable_summary_reconciliation,
+            fallback_page_size=fallback_page_size,
             _mutable_seed_rows={str(row["sid"]): row for row in mutable_seed_rows})
     except Exception as error:
         actual_requests = int(getattr(call, "attempt_count", starting_attempts + requests)) - starting_attempts
@@ -334,10 +361,19 @@ def fetch_guild_day(
     # the response summary. Empty or malformed summaries remain fail-closed.
     require_summary = True
     resolved_page_size = configured_page_size(page_size)
+    fallback_page_size = _fallback_page_size(resolved_page_size) if parsed_date == effective_today else None
     api_call = call or _authenticated_call(guild, tokens_path)
+    batch_deadline = deadline_monotonic
+    guild_deadline = time.monotonic() + _positive_seconds("LINKY_GUILD_MAX_SECONDS", "480")
+    endpoint_deadline = guild_deadline
     def bounded_call(path: str) -> dict[str, Any]:
-        if deadline_monotonic is not None and time.monotonic() >= deadline_monotonic:
+        now = time.monotonic()
+        if batch_deadline is not None and now >= batch_deadline:
             raise BatchDeadlineExceeded("Linky batch deadline reached before next request")
+        if now >= guild_deadline:
+            raise GuildDeadlineExceeded("Linky guild deadline reached before next request")
+        if now >= endpoint_deadline:
+            raise EndpointDeadlineExceeded("Linky endpoint deadline reached before next request")
         if not hasattr(api_call, "attempt_count"):
             bounded_call.attempt_count += 1
         try:
@@ -354,17 +390,23 @@ def fetch_guild_day(
     if request_scope is not None and cache_key in request_scope:
         return replace(request_scope[cache_key], bundle_reused=True)
 
+    endpoint_deadline = min(guild_deadline,
+        time.monotonic() + _positive_seconds("LINKY_ENDPOINT_MAX_SECONDS", "240"))
     streamer_rows, streamer_scan = _scan(
         bounded_call, "/api/guild/streamer_stat", business_date, "total_earns",
         resolved_page_size, require_summary=require_summary,
         allow_mutable_summary_reconciliation=parsed_date == effective_today,
+        fallback_page_size=fallback_page_size,
         mutable_seed_rows=(mutable_seed_rows_by_endpoint or {}).get(
             "/api/guild/streamer_stat", ()))
     try:
+        endpoint_deadline = min(guild_deadline,
+            time.monotonic() + _positive_seconds("LINKY_ENDPOINT_MAX_SECONDS", "240"))
         room_rows, room_scan = _scan(
             bounded_call, "/api/guild/live_room_stat", business_date, "receive_diamonds",
             resolved_page_size, require_summary=require_summary,
             allow_mutable_summary_reconciliation=parsed_date == effective_today,
+            fallback_page_size=fallback_page_size,
             mutable_seed_rows=(mutable_seed_rows_by_endpoint or {}).get(
                 "/api/guild/live_room_stat", ()))
     except FetchScanError as error:
@@ -376,6 +418,8 @@ def fetch_guild_day(
     online_sids: frozenset[int] = frozenset()
     online_scan: EndpointScan | None = None
     if parsed_date == effective_today:
+        endpoint_deadline = min(guild_deadline,
+            time.monotonic() + _positive_seconds("LINKY_ENDPOINT_MAX_SECONDS", "240"))
         online_sids, online_scan = _online_anchors(bounded_call, resolved_page_size)
 
     bundle = FetchBundle(
