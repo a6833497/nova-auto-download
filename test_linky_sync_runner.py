@@ -14,6 +14,7 @@ import linke_ledger_pull
 import linke_live_pull
 from linky_consumers import build_ledger_rows, build_live_rows, validate_complete_bundle
 from linky_fetch import EndpointScan, FetchBundle, FetchScanError
+from linky_api_pagination import MutableSnapshotIncomplete
 from linky_sync_runner import closure_complete, fetch_with_consistency_rescan, load_guilds, main, process_bundle, run_cycle, valid_batch_id, write_closure
 from linky_sync_runner import DEFAULT_TOKENS
 
@@ -78,6 +79,19 @@ class LinkyRunnerTests(unittest.TestCase):
         with self.assertRaisesRegex(FetchScanError, "401"):
             fetch_with_consistency_rescan(fetcher, "Nova", "20260810",
                 utc_today=dt.date(2026,8,10), tokens_path=None,
+                deadline_monotonic=10**12, page_size=5000, sleeper=lambda _delay: None)
+        self.assertEqual(1, len(calls))
+
+    def test_exhausted_endpoint_alternate_pass_is_not_rescanned_as_a_bundle(self):
+        calls = []
+        def fetcher(*_args, **_kwargs):
+            calls.append(1)
+            cause = MutableSnapshotIncomplete("still drifting", [], 5, 8)
+            raise FetchScanError("Linky mutable pagination drift did not reconcile after merge",
+                {"endpoint": "/api/guild/streamer_stat"}) from cause
+        with self.assertRaises(FetchScanError):
+            fetch_with_consistency_rescan(fetcher, "Nova", "20260811",
+                utc_today=dt.date(2026,8,11), tokens_path=None,
                 deadline_monotonic=10**12, page_size=5000, sleeper=lambda _delay: None)
         self.assertEqual(1, len(calls))
 

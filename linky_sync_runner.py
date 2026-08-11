@@ -17,8 +17,9 @@ from decimal import Decimal, InvalidOperation
 from typing import Any, Callable
 
 from linky_consumers import write_daily_ledger, write_live_views
-from linky_fetch import BatchDeadlineExceeded, FetchBundle, FetchScanError, fetch_guild_day, new_request_scope
-from linky_api_pagination import configured_page_size
+from linky_fetch import (BatchDeadlineExceeded, FetchBundle, FetchScanError,
+    fetch_guild_day, new_request_scope)
+from linky_api_pagination import MutableSnapshotIncomplete, configured_page_size
 from linky_runtime import atomic_json, database_url_from_environment
 
 
@@ -174,6 +175,9 @@ def fetch_with_consistency_rescan(fetcher: Callable[..., FetchBundle], guild: st
                 options["page_size"] = page_size
             return fetcher(guild, day, **options), attempt
         except FetchScanError as error:
+            if isinstance(error.__cause__, MutableSnapshotIncomplete):
+                # The endpoint already used its one bounded alternate-page pass.
+                raise
             retryable = any(marker in str(error) for marker in CONSISTENCY_DRIFT_MARKERS)
             enough_time = time.monotonic() + CONSISTENCY_RESCAN_DELAY_SECONDS < deadline_monotonic
             if attempt or not retryable or not enough_time:
@@ -354,7 +358,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--business-date", help="target UTC business date YYYYMMDD")
     parser.add_argument("--force", action="store_true")
     parser.add_argument("--max-batch-seconds", type=int,
-        default=int(os.getenv("LINKE_MAX_BATCH_SECONDS", "3300")))
+        default=int(os.getenv("LINKE_MAX_BATCH_SECONDS", "2700")))
     parser.add_argument("--page-size", type=int,
         default=configured_page_size())
     parser.add_argument("--target-write-live", action="store_true")

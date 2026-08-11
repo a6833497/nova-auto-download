@@ -201,6 +201,43 @@ class FetchGuildDayTest(unittest.TestCase):
         self.assertEqual(["1", "4"], [row["sid"] for row in value.streamer_rows])
         self.assertEqual("8", value.streamer_scan.detail_amount)
 
+    def test_current_day_uses_one_alternate_page_size_for_failed_endpoint_only(self):
+        streamer_paths = []
+        def call(path):
+            if "streamer_stat" in path:
+                streamer_paths.append(path)
+                size = int(path.split("page_size=")[1].split("&")[0])
+                page = int(path.split("page_num=")[1].split("&")[0])
+                if size == 3:
+                    return {
+                        1: {"items": [{"sid": "1", "total_earns": 5},
+                            {"sid": "2", "total_earns": 0},
+                            {"sid": "3", "total_earns": 0}], "total": 4,
+                            "total_item": {"total_earns": 8}},
+                        2: {"items": [{"sid": "3", "total_earns": 0}],
+                            "total": 4, "total_item": {"total_earns": 8}},
+                    }[page]
+                return {
+                    1: {"items": [{"sid": "1", "total_earns": 5},
+                        {"sid": "2", "total_earns": 0}], "total": 4,
+                        "total_item": {"total_earns": 8}},
+                    2: {"items": [{"sid": "3", "total_earns": 0},
+                        {"sid": "4", "total_earns": 3}], "total": 4,
+                        "total_item": {"total_earns": 8}},
+                }[page]
+            if "live_room_stat" in path:
+                return {"items": [], "total": 0,
+                    "total_item": {"receive_diamonds": 0}}
+            return {"items": [], "total": 0, "next_page": False}
+        with patch.dict("os.environ", {"LINKY_FALLBACK_PAGE_SIZE": "2"}):
+            value = fetch_guild_day("Nova", "20260811", call=call,
+                utc_today=dt.date(2026, 8, 11), page_size=3)
+        self.assertEqual([3, 3, 2, 2], [int(path.split("page_size=")[1].split("&")[0])
+            for path in streamer_paths])
+        self.assertEqual(["1", "4"], [row["sid"] for row in value.streamer_rows])
+        self.assertEqual(1, value.streamer_scan.reconciliation_pass_count)
+        self.assertEqual(2, value.streamer_scan.requested_page_size)
+
     def test_request_scope_reuses_bundle_without_network_calls(self):
         calls = []
         scope = new_request_scope()

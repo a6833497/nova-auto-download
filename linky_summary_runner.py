@@ -12,6 +12,7 @@ import os
 from pathlib import Path
 import re
 import uuid
+import time
 from typing import Any, Callable
 
 from linky_fetch import _authenticated_call
@@ -57,11 +58,14 @@ def decimal_text(value: Any) -> str:
 
 
 def fetch_guild_summary(guild: str, business_date: str, *,
-                        call: Callable[[str], dict[str, Any]] | None = None) -> dict[str, Any]:
+                        call: Callable[[str], dict[str, Any]] | None = None,
+                        deadline_monotonic: float | None = None) -> dict[str, Any]:
     api_call = call or _authenticated_call(guild)
     values: dict[str, Any] = {}
     endpoint_evidence = []
     for endpoint, value_key, output_key in SUMMARY_ENDPOINTS:
+        if deadline_monotonic is not None and time.monotonic() >= deadline_monotonic:
+            raise RuntimeError("Linky summary batch deadline reached")
         path = f"{endpoint}?begin={business_date}&end={business_date}&page_num=1&page_size=1&type=0"
         payload = api_call(path)
         total_item = payload.get("total_item")
@@ -82,7 +86,8 @@ def fetch_guild_summary(guild: str, business_date: str, *,
 
 
 def publish_summary(state_root: Path, guilds: list[str], business_date: str, batch_id: str,
-                    *, fetcher: Callable[[str, str], dict[str, Any]] = fetch_guild_summary) -> tuple[dict[str, Any], bool]:
+                    *, fetcher: Callable[[str, str], dict[str, Any]] = fetch_guild_summary,
+                    deadline_monotonic: float | None = None) -> tuple[dict[str, Any], bool]:
     latest_path = state_root / "linky-guild-summary" / "latest.json"
     try:
         previous = json.loads(latest_path.read_text(encoding="utf-8"))
@@ -94,6 +99,8 @@ def publish_summary(state_root: Path, guilds: list[str], business_date: str, bat
     all_fresh = True
     for guild in guilds:
         try:
+            if deadline_monotonic is not None and time.monotonic() >= deadline_monotonic:
+                raise RuntimeError("Linky summary batch deadline reached")
             rows.append(fetcher(guild, business_date))
         except Exception as error:
             all_fresh = False
@@ -124,6 +131,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--tokens", default=os.getenv("LINKE_GUILD_TOKENS", DEFAULT_TOKENS))
     parser.add_argument("--state-root", default=os.getenv("LINKE_STATE_ROOT", DEFAULT_STATE))
     parser.add_argument("--lock-file", default=os.getenv("LINKE_SUMMARY_LOCK", "/tmp/linky-summary.lock"))
+    parser.add_argument("--max-batch-seconds", type=int,
+        default=int(os.getenv("LINKY_SUMMARY_MAX_BATCH_SECONDS", "720")))
     args = parser.parse_args(argv)
     batch_id = args.batch_id or f"{dt.datetime.now(dt.timezone.utc).strftime('%Y%m%dT%H%M%SZ')}-summary-{uuid.uuid4().hex[:8]}"
     if not valid_batch_id(batch_id):
@@ -138,9 +147,11 @@ def main(argv: list[str] | None = None) -> int:
             fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
             return 0
+        deadline = time.monotonic() + args.max_batch_seconds
         _, complete = publish_summary(Path(args.state_root), guilds, today.strftime("%Y%m%d"), batch_id,
             fetcher=lambda guild, day: fetch_guild_summary(guild, day,
-                call=_authenticated_call(guild, args.tokens)))
+                call=_authenticated_call(guild, args.tokens), deadline_monotonic=deadline),
+            deadline_monotonic=deadline)
     return 0 if complete else 2
 
 
