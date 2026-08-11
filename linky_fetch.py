@@ -26,6 +26,36 @@ LinkyCall = Callable[[str], Dict[str, Any]]
 RequestScope = MutableMapping[Tuple[str, str, str], "FetchBundle"]
 
 
+def _json_value_type(value: Any, present: bool) -> str:
+    if not present:
+        return "missing"
+    if value is None:
+        return "null"
+    if isinstance(value, bool):
+        return "boolean"
+    if isinstance(value, int):
+        return "integer"
+    if isinstance(value, float):
+        return "number"
+    if isinstance(value, str):
+        return "string"
+    if isinstance(value, list):
+        return "array"
+    if isinstance(value, dict):
+        return "object"
+    return type(value).__name__
+
+
+def _integer_like(value: Any) -> bool:
+    if isinstance(value, bool) or value is None:
+        return False
+    try:
+        int(value)
+        return True
+    except (TypeError, ValueError, OverflowError):
+        return False
+
+
 class FetchScanError(RuntimeError):
     def __init__(self, message: str, observation: dict[str, Any]):
         super().__init__(message)
@@ -128,8 +158,9 @@ def _scan(call: LinkyCall, endpoint: str, day: str, value_key: str,
     observed_raw_count = 0
     observed_positive_count = 0
     observed_total: Any = None
+    observed_total_present = False
     def observed_call(path: str) -> dict[str, Any]:
-        nonlocal requests, observed_raw_count, observed_positive_count, observed_total
+        nonlocal requests, observed_raw_count, observed_positive_count, observed_total, observed_total_present
         requests += 1
         payload = call(path)
         items = payload.get("items") or []
@@ -137,6 +168,7 @@ def _scan(call: LinkyCall, endpoint: str, day: str, value_key: str,
             observed_raw_count += len(items)
             observed_positive_count += sum(1 for row in items
                 if isinstance(row, dict) and float(row.get(value_key) or 0) > 0)
+        observed_total_present = "total" in payload
         observed_total = payload.get("total")
         return payload
     try:
@@ -145,12 +177,18 @@ def _scan(call: LinkyCall, endpoint: str, day: str, value_key: str,
     except Exception as error:
         actual_requests = int(getattr(call, "attempt_count", starting_attempts + requests)) - starting_attempts
         retries = int(getattr(call, "retry_count", starting_retries)) - starting_retries
+        safe_reported_total = observed_total if isinstance(observed_total, (str, int, float, bool)) else None
         observation = {"endpoint": endpoint, "pageCount": requests,
             "rawRowCount": observed_raw_count,
             "positiveRowCount": observed_positive_count,
             "requestCount": actual_requests, "retryCount": retries,
             "apiElapsedSeconds": time.monotonic() - started, "scanComplete": False,
-            "reportedTotal": observed_total, "requestedPageSize": page_size}
+            "httpStatus": getattr(call, "last_http_status", None),
+            "reportedTotal": safe_reported_total,
+            "reportedTotalPresent": observed_total_present,
+            "reportedTotalType": _json_value_type(observed_total, observed_total_present),
+            "reportedTotalIntegerLike": _integer_like(observed_total),
+            "requestedPageSize": page_size}
         raise FetchScanError(str(error), observation) from error
     elapsed = time.monotonic() - started
     actual_requests = int(getattr(call, "attempt_count", starting_attempts + requests)) - starting_attempts
@@ -243,8 +281,11 @@ def _authenticated_call(guild: str, tokens_path: str | None = None) -> LinkyCall
                 "User-Agent": "Mozilla/5.0",
             })
             try:
-                return json.loads(urllib.request.urlopen(request, timeout=30).read())
+                response = urllib.request.urlopen(request, timeout=30)
+                call.last_http_status = getattr(response, "status", None)
+                return json.loads(response.read())
             except urllib.error.HTTPError as error:
+                call.last_http_status = error.code
                 if error.code not in {502, 503, 504} or attempt == max_retries:
                     raise
                 call.retry_count += 1
@@ -252,6 +293,7 @@ def _authenticated_call(guild: str, tokens_path: str | None = None) -> LinkyCall
         raise AssertionError("unreachable")
     call.attempt_count = 0
     call.retry_count = 0
+    call.last_http_status = None
     return call
 
 
@@ -287,8 +329,10 @@ def fetch_guild_day(
             if hasattr(api_call, "attempt_count"):
                 bounded_call.attempt_count = int(api_call.attempt_count)
                 bounded_call.retry_count = int(api_call.retry_count)
+            bounded_call.last_http_status = getattr(api_call, "last_http_status", None)
     bounded_call.attempt_count = int(getattr(api_call, "attempt_count", 0))
     bounded_call.retry_count = int(getattr(api_call, "retry_count", 0))
+    bounded_call.last_http_status = getattr(api_call, "last_http_status", None)
     cache_key = (guild, business_date, f"type=0,page_size={resolved_page_size}")
     if request_scope is not None and cache_key in request_scope:
         return replace(request_scope[cache_key], bundle_reused=True)

@@ -118,6 +118,43 @@ class FetchGuildDayTest(unittest.TestCase):
         self.assertFalse(caught.exception.observation["scanComplete"])
         self.assertEqual({}, scope)
 
+    def test_invalid_total_failure_records_sanitized_protocol_shape(self):
+        cases = [
+            ({"items": []}, "missing", False, False),
+            ({"items": [], "total": None}, "null", True, False),
+            ({"items": [], "total": "not-ready"}, "string", True, False),
+        ]
+        for payload, expected_type, expected_present, expected_integer_like in cases:
+            with self.subTest(expected_type=expected_type):
+                class Call:
+                    attempt_count = 0
+                    retry_count = 0
+                    last_http_status = 200
+
+                    def __call__(self, _path):
+                        self.attempt_count += 1
+                        return payload
+
+                with self.assertRaisesRegex(FetchScanError, "response total is invalid") as caught:
+                    fetch_guild_day("Nova", "20260805", call=Call(),
+                        utc_today=dt.date(2026, 8, 5))
+                observation = caught.exception.observation
+                self.assertEqual("/api/guild/streamer_stat", observation["endpoint"])
+                self.assertEqual(200, observation["httpStatus"])
+                self.assertEqual(expected_present, observation["reportedTotalPresent"])
+                self.assertEqual(expected_type, observation["reportedTotalType"])
+                self.assertEqual(expected_integer_like, observation["reportedTotalIntegerLike"])
+                self.assertFalse(observation["scanComplete"])
+
+    def test_numeric_string_total_remains_accepted(self):
+        def call(path):
+            value_key = "total_earns" if "streamer_stat" in path else "receive_diamonds"
+            return {"items": [], "total": "0", "total_item": {value_key: 0}}
+        value = fetch_guild_day("Nova", "20260805", call=call,
+            utc_today=dt.date(2026, 8, 5))
+        self.assertTrue(value.scan_complete)
+        self.assertEqual(0, value.streamer_scan.reported_total)
+
     def test_request_scope_reuses_bundle_without_network_calls(self):
         calls = []
         scope = new_request_scope()
