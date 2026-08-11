@@ -105,7 +105,8 @@ def request_export_url(guild: str, business_date: str, *,
         raise ExportValidationError("EXPORT_REQUEST_FAILED") from error
     candidate: Any = response
     if isinstance(candidate, dict):
-        candidate = candidate.get("url", candidate.get("data"))
+        candidate = candidate.get("file_url",
+            candidate.get("url", candidate.get("data")))
     if isinstance(candidate, dict):
         candidate = candidate.get("url")
     if not isinstance(candidate, str):
