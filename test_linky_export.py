@@ -25,7 +25,7 @@ class LinkyExportTest(unittest.TestCase):
             def opener(request, timeout):
                 seen["request"] = request
                 seen["timeout"] = timeout
-                return io.BytesIO(b'{"data":{"url":"https://bucket.aliyuncs.com/export.csv"}}')
+                return io.BytesIO(b'{"file_url":"https://bucket.aliyuncs.com/export.csv"}')
             value = request_export_url("G", "20260810", tokens_path=str(tokens),
                 urlopen=opener)
             self.assertEqual("https://bucket.aliyuncs.com/export.csv", value)
