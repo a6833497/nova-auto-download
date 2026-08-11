@@ -39,10 +39,12 @@ def pull_pages(call: Callable[[str], dict[str, Any]], path: str, day: str, value
                page_size: int | None = None, max_pages: int = MAX_PAGES,
                require_unique_sid: bool = True,
                require_summary: bool = False,
-               allow_mutable_summary_reconciliation: bool = False) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+               allow_mutable_summary_reconciliation: bool = False,
+               _mutable_seed_rows: dict[str, dict[str, Any]] | None = None,
+               _mutable_reconciliation_pass_count: int = 0) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """Read all raw rows. Filtering zero values never controls pagination."""
     resolved_page_size = configured_page_size(page_size)
-    positive_by_sid: dict[str, dict[str, Any]] = {}
+    positive_by_sid: dict[str, dict[str, Any]] = dict(_mutable_seed_rows or {})
     evidence: list[dict[str, Any]] = []
     seen_raw_sids: set[str] = set()
     raw_rows_by_sid: dict[str, dict[str, Any]] = {}
@@ -141,8 +143,16 @@ def pull_pages(call: Callable[[str], dict[str, Any]], path: str, day: str, value
         if summary_amount is None:
             raise RuntimeError("Linky mutable pagination drift has no reconcilable total_item")
         if detail_amount != summary_amount:
+            if _mutable_reconciliation_pass_count == 0:
+                return pull_pages(call, path, day, value_key, page_size=resolved_page_size,
+                    max_pages=max_pages, require_unique_sid=require_unique_sid,
+                    require_summary=require_summary,
+                    allow_mutable_summary_reconciliation=True,
+                    _mutable_seed_rows=positive_by_sid,
+                    _mutable_reconciliation_pass_count=1)
             raise RuntimeError(
-                f"Linky mutable pagination drift did not reconcile: detail={detail_amount} summary={summary_amount}")
+                f"Linky mutable pagination drift did not reconcile after merge: "
+                f"detail={detail_amount} summary={summary_amount}")
     final_count = evidence[-1]["rawCount"] if evidence else 0
     expected_final = (reported_total or 0) % resolved_page_size or (
         resolved_page_size if (reported_total or 0) else 0)
@@ -154,6 +164,7 @@ def pull_pages(call: Callable[[str], dict[str, Any]], path: str, day: str, value
             "uniqueSidCount": len(seen_raw_sids),
             "duplicateSidCount": duplicate_sid_count,
             "totalChangeCount": total_item_change_count,
+            "reconciliationPassCount": _mutable_reconciliation_pass_count,
             "repeatedPageCount": 0,
             "detailAmount": str(detail_amount),
             "totalItemAmount": str(summary_amount) if summary_amount is not None else None,

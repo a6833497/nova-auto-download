@@ -28,7 +28,7 @@ def scan(endpoint="/api/guild/streamer_stat", complete=True, raw=2, total=2):
         positive_row_count=1, request_count=1, retry_count=0,
         api_elapsed_seconds=0.01, scan_complete=complete, reported_total=total,
         requested_page_size=500, unique_sid_count=raw, duplicate_sid_count=0,
-        total_change_count=0, repeated_page_count=0, detail_amount="1",
+        total_change_count=0, reconciliation_pass_count=0, repeated_page_count=0, detail_amount="1",
         total_item_amount="1", canonical_sid_checksum="sid",
         canonical_amount_checksum="amount", final_page_row_count=raw,
         expected_final_page_row_count=raw,

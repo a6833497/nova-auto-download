@@ -81,6 +81,7 @@ class EndpointScan:
     unique_sid_count: int
     duplicate_sid_count: int
     total_change_count: int
+    reconciliation_pass_count: int
     repeated_page_count: int
     detail_amount: str
     total_item_amount: str
@@ -105,6 +106,7 @@ class EndpointScan:
             "uniqueSidCount": self.unique_sid_count,
             "duplicateSidCount": self.duplicate_sid_count,
             "totalChangeCount": self.total_change_count,
+            "reconciliationPassCount": self.reconciliation_pass_count,
             "repeatedPageCount": self.repeated_page_count,
             "detailAmount": self.detail_amount,
             "totalItemAmount": self.total_item_amount,
@@ -210,6 +212,7 @@ def _scan(call: LinkyCall, endpoint: str, day: str, value_key: str,
         unique_sid_count=summary["uniqueSidCount"],
         duplicate_sid_count=summary["duplicateSidCount"],
         total_change_count=summary["totalChangeCount"],
+        reconciliation_pass_count=summary["reconciliationPassCount"],
         repeated_page_count=summary["repeatedPageCount"],
         detail_amount=summary["detailAmount"],
         total_item_amount=summary["totalItemAmount"],
@@ -255,7 +258,7 @@ def _online_anchors(call: LinkyCall, page_size: int, max_pages: int = 40) -> tup
         api_elapsed_seconds=time.monotonic() - started, scan_complete=complete,
         reported_total=sum(page["rawCount"] for page in pages),
         requested_page_size=page_size, unique_sid_count=len(sids), duplicate_sid_count=0,
-        total_change_count=0, repeated_page_count=0, detail_amount="0",
+        total_change_count=0, reconciliation_pass_count=0, repeated_page_count=0, detail_amount="0",
         total_item_amount="0", canonical_sid_checksum="", canonical_amount_checksum="",
         final_page_row_count=pages[-1]["rawCount"] if pages else 0,
         expected_final_page_row_count=pages[-1]["rawCount"] if pages else 0,

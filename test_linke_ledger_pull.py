@@ -107,9 +107,39 @@ class PaginationTests(unittest.TestCase):
                 "total": 4, "total_item": {"v": 9}},
         }
         call = lambda path: pages[int(path.split("page_num=")[1].split("&")[0])]
-        with self.assertRaisesRegex(RuntimeError, "did not reconcile"):
+        with self.assertRaisesRegex(RuntimeError, "did not reconcile after merge"):
             pull_pages(call, "/x", "20260811", "v", page_size=2,
                 allow_mutable_summary_reconciliation=True)
+
+    def test_mutable_second_pass_merges_a_positive_row_shifted_out_of_first_pass(self):
+        calls = []
+        passes = [
+            {
+                1: {"items": [{"sid": "1", "v": 5}, {"sid": "2", "v": 0}],
+                    "total": 4, "total_item": {"v": 5}},
+                2: {"items": [{"sid": "2", "v": 0}, {"sid": "4", "v": 3}],
+                    "total": 4, "total_item": {"v": 9}},
+            },
+            {
+                1: {"items": [{"sid": "1", "v": 5}, {"sid": "3", "v": 1}],
+                    "total": 4, "total_item": {"v": 9}},
+                2: {"items": [{"sid": "3", "v": 1}, {"sid": "4", "v": 3}],
+                    "total": 4, "total_item": {"v": 9}},
+            },
+        ]
+        def call(path):
+            page = int(path.split("page_num=")[1].split("&")[0])
+            pass_number = len(calls) // 2
+            calls.append((pass_number, page))
+            return passes[pass_number][page]
+        rows, evidence = pull_pages(call, "/x", "20260811", "v", page_size=2,
+            allow_mutable_summary_reconciliation=True)
+        self.assertEqual(["1", "4", "3"], [row["sid"] for row in rows])
+        self.assertEqual(4, len(calls))
+        summary = evidence[-1]["scanSummary"]
+        self.assertEqual(1, summary["reconciliationPassCount"])
+        self.assertEqual("9", summary["detailAmount"])
+        self.assertEqual("9", summary["totalItemAmount"])
 
     def test_historical_cross_page_duplicate_remains_fail_closed(self):
         pages = {
