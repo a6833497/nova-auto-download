@@ -87,8 +87,8 @@
       {
         "name": "导出主播数据",
         "url": "POST /api/guild/export_streamer_stat",
-        "params": "导出条件(body)",
-        "description": "导出主播数据为文件"
+        "params": "{begin: YYYYMMDD(number), end: YYYYMMDD(number), req_type: 0|1(number), sid: number|null}",
+        "description": "返回临时CSV地址；已观测到明细上限5000行，必须与同日API行数、SID和金额全量对账后才可使用"
       },
       {
         "name": "导出语音房数据",

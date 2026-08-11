@@ -19,12 +19,12 @@ Acceptance: malformed summaries fail closed; partial detail never reaches Postgr
 - `linke_live_refresh.sh` was scheduled hourly at minute 15 and ran one full bundle for live views, daily ledger, display-time rebuild and projections.
 - `linky_fetch.py` and `linky_api_pagination.py` coupled current streamer and room pagination. Database writes were already transactionally gated on a complete bundle, but useful incomplete rows survived only inside one invocation.
 - `linke_streamer_daily.settled` already represents closed-day finality. No separate guild-summary table or publication existed.
-- `POST /api/guild/export_streamer_stat` returns a temporary CSV URL, but the documented local summary does not define the body. Bounded production probes confirmed the response shape and CSV delivery; the attempted date fields did not select the requested data, so the exporter is not accepted as a snapshot source until its official request contract is obtained.
+- The current official UI sends `POST /api/guild/export_streamer_stat` with numeric `begin`, `end`, `req_type` and nullable `sid`. A bounded settled-day production probe selected the requested date but returned exactly 5,000 detail rows for an API-reported 14,079 rows. Its `Total` row matched the API summary while its detail sum did not, proving that this export is capped rather than a complete snapshot source.
 
 ## Change-package roadmap
 
 1. Collector package: lightweight page-one guild summary, durable fail-closed current-day accumulation, strict closed-day behavior, dedicated tests. Rollback is a release symlink switch; state files are additive and ignored by the old release.
 2. Schedule package: install the summary lane at minutes `2,17,32,47`; retain the hourly detail lane and daily closure lane. Rollback removes only the summary cron line.
-3. Export adapter (deferred gate): implement only after an official body/schema contract and file consistency test. It must remain behind a feature flag and fall back to the paginated accumulation path.
+3. Export adapter: use the official request body only for an explicit read-only probe. Validate the business date, row count, unique SID count, detail sum and `Total` row against the same-day API summary before returning any rows. A capped or inconsistent file is rejected and the production publisher continues using the paginated accumulation path. The adapter is not scheduled and cannot write business data.
 
 Explicit exclusions: no secret output, no production database schema change, no fabricated totals, and no backend restart.
