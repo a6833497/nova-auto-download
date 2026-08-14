@@ -49,6 +49,11 @@ class RuntimePathsTest(unittest.TestCase):
             for token in forbidden:
                 self.assertNotIn(token, source, f"{name}: {token}")
 
+    def test_daily_sync_pg_host_matches_protected_pgpass_entry(self):
+        source = (ROOT / "daily-sync.sh").read_text(encoding="utf-8")
+        self.assertIn('PG="psql -h localhost -U nova_app -d nova_dashboard -tAc"', source)
+        self.assertNotIn('PG="psql -h 127.0.0.1 -U nova_app -d nova_dashboard -tAc"', source)
+
     def test_every_linky_entrypoint_declares_runtime_requirements(self):
         policy = json.loads((ROOT / "runtime-closure-policy.json").read_text(encoding="utf-8"))
         requirements = policy["runtimeRequirements"]
