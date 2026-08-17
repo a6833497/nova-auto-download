@@ -23,6 +23,75 @@ if not DSN:
 conn = psycopg2.connect(DSN)
 cur = conn.cursor()
 
+def validate_allocation_manifests(cursor, start_date, end_date):
+    """Fail closed before commit when a settled source scope is only partly rebuilt."""
+    cursor.execute("""
+      WITH expected AS (
+        SELECT m.date::date AS business_date, COALESCE(h.guildname,'') AS guild,
+               COUNT(*) AS subject_count,
+               SUM(COALESCE(m.paiddiamondtotal,0))::numeric AS total
+        FROM metrics_daily m JOIN hosts h ON h.id=m.hostid
+        WHERE m.date::date BETWEEN %s AND %s AND COALESCE(m.paiddiamondtotal,0)>0
+        GROUP BY 1,2
+      ), actual AS (
+        SELECT business_date, guild, COUNT(DISTINCT subject_id) AS subject_count,
+               SUM(allocated_amount)::numeric AS total
+        FROM diamond_income_time_allocation
+        WHERE business_date BETWEEN %s AND %s AND allocation_version=%s
+          AND source='LINKY_BI'
+        GROUP BY 1,2
+      )
+      SELECT COALESCE(e.business_date,a.business_date), COALESCE(e.guild,a.guild),
+             e.subject_count, a.subject_count, e.total, a.total
+      FROM expected e FULL OUTER JOIN actual a USING (business_date,guild)
+      WHERE e.business_date IS NULL OR a.business_date IS NULL
+         OR e.subject_count<>a.subject_count OR ABS(e.total-a.total)>0.000001
+      ORDER BY 1,2
+    """, (start_date,end_date,start_date,end_date,VERSION))
+    linky_mismatches = cursor.fetchall()
+
+    cursor.execute("""
+      WITH expected AS (
+        SELECT t.stat_date_bj AS business_date, t.country, TRIM(t.guild_name) AS guild,
+               COUNT(DISTINCT t.timo_id) AS subject_count,
+               SUM(t.total_income)::numeric AS total,
+               BOOL_AND(NOT t.provisional) AS settled
+        FROM external_timo_revenue_daily_staging t
+        WHERE t.stat_date_bj BETWEEN %s AND %s AND t.total_income>0
+          AND EXISTS (
+            SELECT 1 FROM guild_source_dictionary d
+            WHERE d.active AND d.source_key='TIMO'
+              AND d.raw_country=t.country AND d.raw_guild=TRIM(t.guild_name)
+              AND t.stat_date_bj>=d.effective_from
+              AND (d.effective_to IS NULL OR t.stat_date_bj<=d.effective_to)
+          )
+        GROUP BY 1,2,3
+      ), actual AS (
+        SELECT business_date, COALESCE(metadata->>'country','') AS country, TRIM(guild) AS guild,
+               COUNT(DISTINCT subject_id) AS subject_count,
+               SUM(allocated_amount)::numeric AS total,
+               BOOL_AND(is_settled) AS settled
+        FROM diamond_income_time_allocation
+        WHERE business_date BETWEEN %s AND %s AND allocation_version=%s AND source='TIMO'
+        GROUP BY 1,2,3
+      )
+      SELECT COALESCE(e.business_date,a.business_date), COALESCE(e.country,a.country),
+             COALESCE(e.guild,a.guild), e.subject_count, a.subject_count,
+             e.total, a.total, e.settled, a.settled
+      FROM expected e FULL OUTER JOIN actual a USING (business_date,country,guild)
+      WHERE e.business_date IS NULL OR a.business_date IS NULL
+         OR e.subject_count<>a.subject_count OR ABS(e.total-a.total)>0.000001
+         OR e.settled IS DISTINCT FROM a.settled
+      ORDER BY 1,2,3
+    """, (start_date,end_date,start_date,end_date,VERSION))
+    timo_mismatches = cursor.fetchall()
+    if linky_mismatches or timo_mismatches:
+        raise RuntimeError(json.dumps({
+            'error': 'allocation_manifest_mismatch',
+            'linky': [[str(value) for value in row] for row in linky_mismatches[:20]],
+            'timo': [[str(value) for value in row] for row in timo_mismatches[:20]],
+        }, ensure_ascii=False, separators=(',',':')))
+
 def stable_int(text):
     return int(hashlib.sha256(text.encode()).hexdigest()[:16],16)
 
@@ -204,6 +273,13 @@ if alloc:
        time_quality,allocation_method,source_timezone,allocation_version,is_settled,metadata)
       VALUES %s ON CONFLICT DO NOTHING
     """,alloc,page_size=5000)
+try:
+    validate_allocation_manifests(cur,date_from,date_to)
+except Exception:
+    conn.rollback()
+    cur.close()
+    conn.close()
+    raise
 conn.commit()
 cur.execute("""
  SELECT source,time_quality,COUNT(*),ROUND(SUM(allocated_amount))
