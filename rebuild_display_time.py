@@ -245,7 +245,7 @@ for key,daily in timo_daily.items():
             hour=stable_int(f'TIMO_BASELINE|{day}|{country}|{guild}|{tid}')%elapsed
             add('TIMO',f'{country}:{guild}:{tid}:{day}:baseline',tid,guild,day,
                 utc_for_local_hour(day,hour,timo_offset),baseline,'SIMULATED','FIRST_SNAPSHOT_BASELINE_ELAPSED_HOURS',
-                timo_tz,False,{'country':country,'elapsed_hours':elapsed})
+                timo_tz,not bool(daily[5]),{'country':country,'elapsed_hours':elapsed})
         for r in events[1:]:
             delta=max(Decimal(r[7] or 0)-Decimal(r[8] or 0),Decimal(0))
             if delta>0:
@@ -256,7 +256,7 @@ for key,daily in timo_daily.items():
                 quality='REAL' if interval_minutes<=90 else 'INFERRED'
                 method='SNAPSHOT_DELTA' if quality=='REAL' else 'MULTI_HOUR_SNAPSHOT_DELTA_PREVIOUS_HOUR'
                 add('TIMO',f'{country}:{guild}:{tid}:{r[4].isoformat()}',tid,guild,day,r[5],delta,quality,
-                    method,r[6],False,{'country':country,'snapshot_interval_minutes':interval_minutes})
+                    method,r[6],not bool(daily[5]),{'country':country,'snapshot_interval_minutes':interval_minutes})
     else:
         total=Decimal(daily[4] or 0)
         hour=stable_int(f'TIMO_DAILY|{day}|{country}|{guild}|{tid}')%24
