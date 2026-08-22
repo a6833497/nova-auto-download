@@ -69,7 +69,8 @@ def lookup(subject_id: str, guilds: list[str], tokens: Path = TOKENS) -> dict[st
             "checksum": checksum, "error": "official_exact_id_not_found"}
 
 
-def candidates(connection: Any, configured: set[str], limit: int) -> list[tuple[str, str, list[str]]]:
+def candidates(connection: Any, configured: set[str], limit: int,
+               subject_ids: list[str] | None = None) -> list[tuple[str, str, list[str]]]:
     with connection.cursor() as cursor:
         cursor.execute("""
           SELECT d.subject_id,d.guild_name,
@@ -81,13 +82,14 @@ def candidates(connection: Any, configured: set[str], limit: int) -> list[tuple[
             AND g.guild_alias=d.guild_name AND g.effective_from<=CURRENT_DATE
             AND (g.effective_to IS NULL OR g.effective_to>=CURRENT_DATE)
           WHERE d.platform='LINKY' AND d.ended_at IS NULL AND i.joined_guild_date IS NULL
+            AND (%s::text[] IS NULL OR d.subject_id=ANY(%s::text[]))
             AND NOT EXISTS (SELECT 1 FROM fan_invalid_subject_quarantine q
               WHERE q.platform=d.platform AND q.subject_id=d.subject_id AND q.active)
             AND (s.last_checked_at IS NULL OR s.status IN ('ERROR','SOURCE_STALE')
               OR s.last_checked_at < now()-INTERVAL '7 days')
           GROUP BY d.subject_id,d.guild_name,s.last_checked_at
           ORDER BY s.last_checked_at NULLS FIRST,d.subject_id
-          LIMIT %s""", (limit,))
+          LIMIT %s""", (subject_ids or None, subject_ids or None, limit))
         result = []
         for subject_id, guild_name, guilds in cursor.fetchall():
             valid = [str(guild) for guild in (guilds or []) if str(guild) in configured]
@@ -124,6 +126,7 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--limit", type=int, default=int(os.getenv("LINKY_JOIN_DATE_LIMIT", "200")))
     parser.add_argument("--tokens", type=Path, default=Path(os.getenv("LINKE_GUILD_TOKENS", str(TOKENS))))
+    parser.add_argument("--subject-id", action="append", default=[])
     args = parser.parse_args()
     if not 1 <= args.limit <= 2000:
         raise SystemExit("limit must be 1..2000")
@@ -132,7 +135,7 @@ def main() -> int:
     configured = set(json.loads(args.tokens.read_text(encoding="utf-8"))["guilds"])
     summary = {"requested": 0, "found": 0, "notFound": 0, "sourceStale": 0, "errors": 0, "unmapped": 0}
     with psycopg2.connect(database_url) as connection:
-        for subject_id, guild_name, guilds in candidates(connection, configured, args.limit):
+        for subject_id, guild_name, guilds in candidates(connection, configured, args.limit, args.subject_id):
             summary["requested"] += 1
             if not guilds:
                 result = {"status": "ERROR", "date": None, "guild": None,
