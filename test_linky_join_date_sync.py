@@ -19,6 +19,12 @@ class LinkyJoinDateSyncTest(unittest.TestCase):
         self.assertEqual(result["status"], "NOT_FOUND")
         self.assertIsNone(result["date"])
 
+    def test_linky_empty_exact_search_shape_is_not_found(self):
+        call = lambda _path: {"next_page": 0, "show_star": False}
+        with patch.object(subject, "_authenticated_call", return_value=call), patch.object(subject.time, "sleep"):
+            result = subject.lookup("12345678", ["Nova-Indonesia"])
+        self.assertEqual(result["status"], "NOT_FOUND")
+
     def test_partial_source_failure_fails_closed(self):
         with patch.object(subject, "_authenticated_call", side_effect=RuntimeError("offline")), patch.object(subject.time, "sleep"):
             result = subject.lookup("12345678", ["Nova-Indonesia"])

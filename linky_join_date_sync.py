@@ -30,9 +30,16 @@ def _joined_date(value: Any) -> str:
 
 
 def _items(payload: Any) -> list[dict[str, Any]]:
-    if not isinstance(payload, dict) or not isinstance(payload.get("items"), list):
+    if not isinstance(payload, dict) or payload.get("error"):
         raise ValueError("response_items_invalid")
-    if "total" in payload and (isinstance(payload["total"], bool) or not isinstance(payload["total"], (int, float))):
+    # Linky omits both `items` and `total_anchors` for a valid empty exact-ID
+    # search. `next_page` is still present and is the response-contract marker.
+    if "items" not in payload and "next_page" in payload:
+        return []
+    if not isinstance(payload.get("items"), list):
+        raise ValueError("response_items_invalid")
+    if "total_anchors" in payload and (isinstance(payload["total_anchors"], bool)
+                                        or not isinstance(payload["total_anchors"], (int, float))):
         raise ValueError("response_total_invalid")
     return [row for row in payload["items"] if isinstance(row, dict)]
 
