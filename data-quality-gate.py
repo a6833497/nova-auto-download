@@ -33,7 +33,7 @@ def main():
         headers = {norm(x) for x in d.get("headers", [])}; rows = d.get("rows", [])
         missing = ["/".join(sorted(x)) for x in CORE if not {norm(y) for y in x} & headers]
         if missing: failures.append(f"{label}: 报表类型错误/缺核心字段 {','.join(missing)}")
-        if not rows and not label.startswith("土耳其"):
+        if not rows:
             failures.append(f"{label}: 主播日明细0行")
         date_keys = [x for x in d.get("headers", []) if norm(x) in {norm(y) for y in CORE[1]}]
         guild_key = next((x for x in d.get("headers", []) if norm(x)=="guild_name"), None)

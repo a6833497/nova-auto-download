@@ -20,9 +20,12 @@ date_arg = os.environ["API_INGEST_DATE"]
 data_dir = os.environ["API_INGEST_DATA_DIR"]
 tmp_dir = os.environ["API_INGEST_TMP_DIR"]
 date_compact = date_arg.replace("-", "")
+retired_prefixes = ("土耳其1-Evian_",)
 
 json_files = [f for f in os.listdir(data_dir)
-              if f.endswith(".json") and ("日主播" in f or "每日主播" in f)]
+              if f.endswith(".json")
+              and ("日主播" in f or "每日主播" in f)
+              and not f.startswith(retired_prefixes)]
 
 if not json_files:
     print("[api-ingest] 未找到主播数据JSON文件")

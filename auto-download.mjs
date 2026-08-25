@@ -15,7 +15,6 @@ const REPORTS = [
   { name: '巴西2-Evian',   url: 'https://bi.aliyuncs.com/token3rd/report/view.htm?id=30b58907-ae0c-407d-b3f0-e52d09f71e6b&accessTicket=949597c4-18bd-4bff-b692-6f606a1cd327&dd_orientation=auto' },
   { name: '巴西3-Wisky',   url: 'https://bi.aliyuncs.com/token3rd/report/view.htm?id=75e0152a-25cf-4bf0-80e6-2889bf8e6798&accessTicket=3f7ee12b-098b-49a5-aef9-fd899b845c18&dd_orientation=auto' },
   { name: '巴西4-Doce',    url: 'https://bi.aliyuncs.com/token3rd/report/view.htm?id=2034e69d-3c70-4b43-8a70-47f3cb8a45a5&accessTicket=a9e70ecc-0acf-4562-947c-6cd2d0fe129a&dd_orientation=auto' },
-  { name: '土耳其1-Evian', url: 'https://bi.aliyuncs.com/token3rd/report/view.htm?id=b2ba3620-7bfc-4a54-8e4a-9bf2f4577fa7&accessTicket=bd4038a2-3a79-49c7-9880-270b58697c3a&dd_orientation=auto' },
   { name: '西语1-Nova',    url: 'https://bi.aliyuncs.com/token3rd/report/view.htm?id=6e5c9d15-df45-4ee9-b9b7-59d1265f7388&accessTicket=75d522ff-bff5-4522-90b2-ebb789439485&dd_orientation=auto' },
   { name: '西语2-Evian',   url: 'https://bi.aliyuncs.com/token3rd/report/view.htm?id=1fca6b36-5fa6-4906-906d-9495e60f5fe1&accessTicket=248e5488-a1ab-42c5-8104-aee77e6565b9&dd_orientation=auto' },
 ];

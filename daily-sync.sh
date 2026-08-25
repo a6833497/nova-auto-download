@@ -55,6 +55,31 @@ log() {
   echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1"
 }
 
+# 已退役的数据源不再下载或导入。如果当日目录留有旧文件，先移到隔离目录，
+# 避免 API/Playwright 降级路径将历史残留文件重新写入正式库。
+RETIRED_REPORTS=("土耳其1-Evian")
+quarantine_retired_reports() {
+  local quarantine_dir="$DOWNLOAD_DIR/_retired"
+  local report file destination moved=0
+
+  for report in "${RETIRED_REPORTS[@]}"; do
+    for file in "$DOWNLOAD_DIR/${report}_"*.json "$DOWNLOAD_DIR/${report}_"*.xlsx; do
+      [ -f "$file" ] || continue
+      mkdir -p "$quarantine_dir"
+      destination="$quarantine_dir/$(basename "$file")"
+      if [ -e "$destination" ]; then
+        destination="${destination}.$(date '+%Y%m%d%H%M%S').$$"
+      fi
+      mv -- "$file" "$destination"
+      moved=$((moved + 1))
+    done
+  done
+
+  if [ "$moved" -gt 0 ]; then
+    log "📦 已隔离 $moved 份退役公会文件，不参与本次导入"
+  fi
+}
+
 # ── 并发锁 ──────────────────────────────────────────────
 if [ -f "$LOCK_FILE" ]; then
   OLD_PID=$(cat "$LOCK_FILE" 2>/dev/null)
@@ -75,6 +100,8 @@ log "  Nova 每日自动同步 v4"
 log "  日期: $DATE"
 log "========================================="
 
+quarantine_retired_reports
+
 # ── Step 0: 清场 ────────────────────────────────────────
 STALE_CHROMIUM=$(pgrep -f chromium 2>/dev/null | wc -l)
 STALE_SNAPSHOT=$(pgrep -f generate-snapshots-fast 2>/dev/null | wc -l)
@@ -93,9 +120,9 @@ if [ "$MEM_AVAIL" -lt 500 ]; then
 fi
 
 # ── Step 0.5: 尝试API方式下载（更快更稳）──────────────────
-# 2026-05-02 修：按 10 个公会名一一检查，缺任何一个就重下载（之前只看 ≥7 总数，单公会缺漏会被错误跳过 → 西语2/印尼3-宝石都踩过）
+# 2026-05-02 修：按现役公会名一一检查，缺任何一个就重下载。
 API_SUCCESS=0
-EXPECTED_REPORTS="印尼1-Nova 印尼2-Carote 印尼3-宝石 巴西1-Nova 巴西2-Evian 巴西3-Wisky 巴西4-Doce 土耳其1-Evian 西语1-Nova 西语2-Evian"
+EXPECTED_REPORTS="印尼1-Nova 印尼2-Carote 印尼3-宝石 巴西1-Nova 巴西2-Evian 巴西3-Wisky 巴西4-Doce 西语1-Nova 西语2-Evian"
 MISSING_REPORTS=""
 for r in $EXPECTED_REPORTS; do
   rcount=$(ls "$DOWNLOAD_DIR"/${r}_*.json 2>/dev/null | wc -l | tr -d ' ')
@@ -105,7 +132,7 @@ for r in $EXPECTED_REPORTS; do
 done
 
 if [ -z "$MISSING_REPORTS" ]; then
-  log "✅ 10 个公会 JSON 全部存在，跳过 API 下载"
+  log "✅ 9 个现役公会 JSON 全部存在，跳过 API 下载"
   API_SUCCESS=1
 else
   log "📡 Step 0.5: 缺公会[$MISSING_REPORTS]，触发 API 下载..."
@@ -115,6 +142,7 @@ else
 
   pkill -f chromium 2>/dev/null
   sleep 2
+  quarantine_retired_reports
 
   # 重新检查
   MISSING_REPORTS=""
@@ -126,7 +154,7 @@ else
   done
 
   if [ -z "$MISSING_REPORTS" ]; then
-    log "  ✅ API下载成功: 10 个公会全到位"
+    log "  ✅ API下载成功: 9 个现役公会全到位"
     API_SUCCESS=1
   else
     log "  ⚠️ API下载仍缺[$MISSING_REPORTS]，降级到 Playwright"
@@ -134,6 +162,7 @@ else
 fi
 
 if [ "$API_SUCCESS" -eq 1 ]; then
+  quarantine_retired_reports
   # 发布门禁：不能再以“文件存在/文件够大”代替正确性证明。
   # 必须同时证明报表类型、业务日期、公会和核心字段正确，失败即隔离，不覆盖正式库。
   QUALITY_JSON="$DOWNLOAD_DIR/_quality_gate.json"
@@ -174,11 +203,12 @@ if [ "$API_SUCCESS" -eq 0 ]; then
 
     pkill -f chromium 2>/dev/null
     sleep 2
+    quarantine_retired_reports
 
     TOTAL_FILES=$(ls "$DOWNLOAD_DIR"/*.xlsx 2>/dev/null | wc -l | tr -d ' ')
     log "  下载文件: $TOTAL_FILES 个"
 
-    EXPECTED_REPORTS=("印尼1-Nova" "印尼2-Carote" "巴西1-Nova" "巴西2-Evian" "巴西3-Wisky" "巴西4-Doce" "土耳其1-Evian" "西语1-Nova" "西语2-Evian")
+    EXPECTED_REPORTS=("印尼1-Nova" "印尼2-Carote" "巴西1-Nova" "巴西2-Evian" "巴西3-Wisky" "巴西4-Doce" "西语1-Nova" "西语2-Evian")
     MISSING_REPORTS=()
     for REPORT in "${EXPECTED_REPORTS[@]}"; do
       if ! ls "$DOWNLOAD_DIR/${REPORT}_"*.xlsx >/dev/null 2>&1; then
@@ -220,6 +250,7 @@ if [ "$API_SUCCESS" -eq 0 ]; then
 
   # ── Step 3: Excel导入 ──────────────────────────────────
   log "📊 Step 3 (Excel): 导入数据..."
+  quarantine_retired_reports
   cd "$API_DIR"
 
   timeout 300 npx tsx src/scripts/batch-ingest-all.ts "$DOWNLOAD_DIR" 2>&1 | tail -5

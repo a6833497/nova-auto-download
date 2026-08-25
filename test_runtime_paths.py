@@ -54,6 +54,23 @@ class RuntimePathsTest(unittest.TestCase):
         self.assertIn('PG="psql -h localhost -U nova_app -d nova_dashboard -tAc"', source)
         self.assertNotIn('PG="psql -h 127.0.0.1 -U nova_app -d nova_dashboard -tAc"', source)
 
+    def test_retired_turkey_report_is_not_collected_or_imported(self):
+        retired = "土耳其1-Evian"
+        daily = (ROOT / "daily-sync.sh").read_text(encoding="utf-8")
+        api_download = (ROOT / "api-download.mjs").read_text(encoding="utf-8")
+        browser_download = (ROOT / "auto-download.mjs").read_text(encoding="utf-8")
+        session_helper = (ROOT / "get-bi-session.mjs").read_text(encoding="utf-8")
+        api_ingest = (ROOT / "api-ingest.sh").read_text(encoding="utf-8")
+        quality_gate = (ROOT / "data-quality-gate.py").read_text(encoding="utf-8")
+
+        self.assertNotIn(retired, api_download)
+        self.assertNotIn(retired, browser_download)
+        self.assertNotIn(retired, session_helper)
+        self.assertIn(f'RETIRED_REPORTS=("{retired}")', daily)
+        self.assertIn("quarantine_retired_reports", daily)
+        self.assertIn(f'retired_prefixes = ("{retired}_",)', api_ingest)
+        self.assertNotIn('label.startswith("土耳其")', quality_gate)
+
     def test_every_linky_entrypoint_declares_runtime_requirements(self):
         policy = json.loads((ROOT / "runtime-closure-policy.json").read_text(encoding="utf-8"))
         requirements = policy["runtimeRequirements"]
