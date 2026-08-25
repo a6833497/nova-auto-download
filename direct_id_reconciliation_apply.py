@@ -49,7 +49,7 @@ def build_plan(active_subject_ids: list[str], linky: dict[str, Any], timo: dict[
     timo_rows = {str(row["subjectId"]): row for row in timo["results"]}
     expected_linky = sorted(subject_id for subject_id in active if len(subject_id) == 8)
     expected_timo = sorted(subject_id for subject_id in active if len(subject_id) == 12)
-    if sorted(linky_rows) != expected_linky or sorted(timo_rows) != expected_timo:
+    if not set(expected_linky).issubset(linky_rows) or not set(expected_timo).issubset(timo_rows):
         raise ValueError("active_target_set_drift")
     plan = {
         "invalid": [], "correctLinky": [], "deleteLinkyNotFound": [],
@@ -89,7 +89,8 @@ def query_active_subject_ids(connection: Any, *, lock: bool) -> list[str]:
           SELECT d.subject_id
           FROM fan_direct_ownerships d
           LEFT JOIN fan_subject_identities i USING(platform,subject_id)
-          WHERE d.platform='LINKY' AND d.ended_at IS NULL AND i.joined_guild_date IS NULL
+          WHERE d.platform='LINKY' AND d.ended_at IS NULL
+            AND (i.joined_guild_date IS NULL OR length(d.subject_id) NOT IN (8,12))
           ORDER BY d.subject_id
         """ + (" FOR UPDATE OF d" if lock else ""))
         return [str(row[0]) for row in cursor.fetchall()]

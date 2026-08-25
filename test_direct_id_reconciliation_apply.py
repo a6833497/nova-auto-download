@@ -42,6 +42,15 @@ class DirectIdReconciliationApplyTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "active_target_set_drift"):
             subject.build_plan(["12345678"], linky, timo)
 
+    def test_prior_evidence_may_be_reused_for_remaining_invalid_rows(self):
+        linky = evidence("linky_official_all_configured_guild_rosters", 10, [
+            {"subjectId": "12345678", "status": "NOT_FOUND", "matches": []},
+        ])
+        timo = evidence("timo_official_all_three_guild_current_rosters", 3, [])
+        plan = subject.build_plan(["7654321"], linky, timo)
+        self.assertEqual(plan["invalid"], ["7654321"])
+        self.assertEqual(plan["deleteLinkyNotFound"], [])
+
     def test_evidence_checksum_and_freshness_are_verified(self):
         payload = evidence("linky_official_all_configured_guild_rosters", 10, [])
         payload["evidenceChecksum"] = subject.canonical_hash(payload)
