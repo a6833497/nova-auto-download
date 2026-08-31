@@ -425,11 +425,11 @@ log "  guildName覆盖率:  ${GUILD_PCT:-?}%"
 
 # Do not use a fixed row-count floor here: the active guild set and source
 # completeness checks below are authoritative, and smaller valid guild sets
-# must still publish.  Keep an optional operator override for emergency use.
-MIN_COMPLETE_ROWS=${BI_MIN_ROWS:-1}
+# must still publish.  A non-empty result is required; missing data remains
+# fail-closed through the report and guild-coverage checks.
 SOURCE_VALID=0
 PUBLISH_OK=0
-if [ "${FINAL_COUNT:-0}" -ge "$MIN_COMPLETE_ROWS" ] && [ -z "${MISSING_REPORTS:-}" ] && [ "${GUILD_PCT:-0}" = "100.0" ]; then
+if [ "${FINAL_COUNT:-0}" -gt 0 ] && [ -z "${MISSING_REPORTS:-}" ] && [ "${GUILD_PCT:-0}" = "100.0" ]; then
   SOURCE_VALID=1
   log "  源数据状态: ✅ 完整，进入统一publication候选验证"
   if NOVA_API_DIR="$API_DIR" timeout 45m "$API_DIR/scripts/run-daily-publication.sh" \
