@@ -423,7 +423,10 @@ log "  快照:             ${SNAPSHOT_COUNT:-0} 条"
 log "  sid重复:          ${DUP:-?}"
 log "  guildName覆盖率:  ${GUILD_PCT:-?}%"
 
-MIN_COMPLETE_ROWS=${BI_MIN_ROWS:-1500}
+# Do not use a fixed row-count floor here: the active guild set and source
+# completeness checks below are authoritative, and smaller valid guild sets
+# must still publish.  Keep an optional operator override for emergency use.
+MIN_COMPLETE_ROWS=${BI_MIN_ROWS:-1}
 SOURCE_VALID=0
 PUBLISH_OK=0
 if [ "${FINAL_COUNT:-0}" -ge "$MIN_COMPLETE_ROWS" ] && [ -z "${MISSING_REPORTS:-}" ] && [ "${GUILD_PCT:-0}" = "100.0" ]; then
@@ -461,7 +464,7 @@ if [ "$SOURCE_VALID" -eq 1 ] && [ "$PUBLISH_OK" -eq 1 ]; then
 elif [ "$SOURCE_VALID" -eq 1 ]; then
   notify_feishu "❌ Nova 发布失败" "日期: $DATE | 源数据完整但快照/统一日事实未发布 | 缓存和版本未更新"
 elif [ "${FINAL_COUNT:-0}" -gt 0 ]; then
-  notify_feishu "⚠️ Nova 同步未通过发布校验" "日期: $DATE | ${FINAL_COUNT} 条 | 缺失公会: ${MISSING_REPORTS[*]:-无} | guild覆盖率: ${GUILD_PCT:-?}% | 不再使用固定3000行阈值"
+  notify_feishu "⚠️ Nova 同步未通过发布校验" "日期: $DATE | ${FINAL_COUNT} 条 | 缺失公会: ${MISSING_REPORTS[*]:-无} | guild覆盖率: ${GUILD_PCT:-?}% | 结构完整性校验未通过（不使用固定行数门槛）"
 else
   notify_feishu "❌ Nova 同步失败" "日期: $DATE | 数据库中无数据 | 缺失: ${MISSING_REPORTS[*]:-无} | 请立即检查 sync.log"
 fi
