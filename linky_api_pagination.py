@@ -53,7 +53,11 @@ def pull_pages(call: Callable[[str], dict[str, Any]], path: str, day: str, value
                allow_mutable_summary_reconciliation: bool = False,
                fallback_page_size: int | None = None,
                _mutable_seed_rows: dict[str, dict[str, Any]] | None = None,
-               _mutable_reconciliation_pass_count: int = 0) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+               _mutable_reconciliation_pass_count: int = 0,
+               resume_state: dict[str, Any] | None = None,
+               checkpoint: Callable[[dict[str, Any]], None] | None = None,
+               on_reported_total: Callable[[int, int], None] | None = None,
+               ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """Read all raw rows. Filtering zero values never controls pagination."""
     resolved_page_size = configured_page_size(page_size)
     positive_by_sid: dict[str, dict[str, Any]] = dict(_mutable_seed_rows or {})
@@ -67,9 +71,65 @@ def pull_pages(call: Callable[[str], dict[str, Any]], path: str, day: str, value
     duplicate_sid_count = 0
     total_item_change_count = 0
     raw_count = 0
-    for page in range(1, max_pages + 1):
+    first_page_response_checksum = ""
+    next_page = 1
+
+    # Ended-day callers may provide a persisted prefix.  Re-read page one on
+    # every attempt before trusting it; any upstream drift discards the prefix.
+    # Current-day mutable scans never pass resume_state.
+    first_payload: dict[str, Any] | None = None
+    if resume_state:
+        try:
+            if (resume_state.get("schemaVersion") != 1
+                    or resume_state.get("path") != path
+                    or resume_state.get("day") != day
+                    or int(resume_state.get("pageSize")) != resolved_page_size):
+                raise ValueError("checkpoint identity mismatch")
+            validation_path = (
+                f"{path}?begin={day}&end={day}&page_num=1"
+                f"&page_size={resolved_page_size}&type=0")
+            first_payload = call(validation_path)
+            validation_checksum = hashlib.sha256(json.dumps(
+                first_payload, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+            if validation_checksum != str(resume_state.get("pageOneResponseChecksum") or ""):
+                raise ValueError("checkpoint source changed")
+            reported_total = int(resume_state["reportedTotal"])
+            total_item = resume_state.get("totalItem")
+            next_page = int(resume_state["nextPage"])
+            raw_count = int(resume_state["rawCount"])
+            seen_raw_sids = {str(value) for value in resume_state["seenSids"]}
+            raw_rows_by_sid = {sid: {} for sid in seen_raw_sids}
+            positive_by_sid.update({str(row["sid"]): row
+                for row in resume_state["positiveRows"]})
+            evidence = list(resume_state["evidence"])
+            first_page_response_checksum = validation_checksum
+            if raw_count != len(seen_raw_sids) or next_page != len(evidence) + 1:
+                raise ValueError("checkpoint continuity mismatch")
+            if reported_total < raw_count or next_page < 2:
+                raise ValueError("checkpoint range mismatch")
+            if on_reported_total is not None:
+                on_reported_total(reported_total, resolved_page_size)
+            first_payload = None
+        except (KeyError, TypeError, ValueError):
+            # A changed or malformed checkpoint is fail-safe: start from the
+            # freshly read page one when available, otherwise from page one.
+            positive_by_sid = dict(_mutable_seed_rows or {})
+            evidence = []
+            seen_raw_sids = set()
+            raw_rows_by_sid = {}
+            reported_total = None
+            total_item = None
+            duplicate_sid_count = 0
+            total_item_change_count = 0
+            raw_count = 0
+            next_page = 1
+
+    pages_to_fetch = (() if reported_total is not None and raw_count == reported_total
+        else range(next_page, max_pages + 1))
+    for page in pages_to_fetch:
         query = f"{path}?begin={day}&end={day}&page_num={page}&page_size={resolved_page_size}&type=0"
-        payload = call(query)
+        payload = first_payload if page == 1 and first_payload is not None else call(query)
+        first_payload = None
         items = payload.get("items") or []
         if not isinstance(items, list):
             raise RuntimeError(f"Linky response items is not a list: page={page}")
@@ -118,6 +178,8 @@ def pull_pages(call: Callable[[str], dict[str, Any]], path: str, day: str, value
             raise RuntimeError(f"Linky response total is invalid: page={page}")
         if reported_total is None:
             reported_total = numeric_total
+            if on_reported_total is not None:
+                on_reported_total(reported_total, resolved_page_size)
             candidate = payload.get("total_item")
             if candidate is not None and not isinstance(candidate, dict):
                 raise RuntimeError("Linky response total_item is not an object: page=1")
@@ -140,12 +202,25 @@ def pull_pages(call: Callable[[str], dict[str, Any]], path: str, day: str, value
             1 for row in items if float(row.get(value_key) or 0) > 0),
             "reportedTotal": numeric_total, "responseChecksum": response_checksum,
             "sidSetChecksum": sid_set_checksum})
+        if page == 1:
+            first_page_response_checksum = response_checksum
+        if checkpoint is not None:
+            checkpoint({
+                "schemaVersion": 1, "path": path, "day": day,
+                "pageSize": resolved_page_size, "nextPage": page + 1,
+                "reportedTotal": reported_total, "totalItem": total_item,
+                "pageOneResponseChecksum": first_page_response_checksum,
+                "rawCount": raw_count, "seenSids": sorted(seen_raw_sids),
+                "positiveRows": list(positive_by_sid.values()),
+                "evidence": evidence,
+            })
         if raw_count == reported_total:
             break
         if len(items) < resolved_page_size:
             raise RuntimeError(f"Linky pagination ended before reported total: page={page}")
     else:
-        raise RuntimeError(f"Linky pagination exceeded safety cap: {max_pages}")
+        if reported_total is None or raw_count != reported_total:
+            raise RuntimeError(f"Linky pagination exceeded safety cap: {max_pages}")
     rows = list(positive_by_sid.values())
     detail_amount = sum((_amount(row.get(value_key)) for row in rows), Decimal(0))
     summary_amount = _amount(total_item.get(value_key)) if total_item is not None and value_key in total_item else None
@@ -159,7 +234,8 @@ def pull_pages(call: Callable[[str], dict[str, Any]], path: str, day: str, value
                     allow_mutable_summary_reconciliation=True,
                     fallback_page_size=fallback_page_size,
                     _mutable_seed_rows=positive_by_sid,
-                    _mutable_reconciliation_pass_count=1)
+                    _mutable_reconciliation_pass_count=1,
+                    on_reported_total=on_reported_total)
             raise MutableSnapshotIncomplete(
                 f"Linky mutable pagination drift did not reconcile after merge: "
                 f"detail={detail_amount} summary={summary_amount}",
@@ -177,7 +253,8 @@ def pull_pages(call: Callable[[str], dict[str, Any]], path: str, day: str, value
                     allow_mutable_summary_reconciliation=True,
                     fallback_page_size=fallback_page_size,
                     _mutable_seed_rows=positive_by_sid,
-                    _mutable_reconciliation_pass_count=1)
+                    _mutable_reconciliation_pass_count=1,
+                    on_reported_total=on_reported_total)
             raise MutableSnapshotIncomplete(
                 f"Linky mutable pagination drift did not reconcile after merge: "
                 f"detail={detail_amount} summary={summary_amount}",

@@ -242,6 +242,25 @@ class LinkyRunnerTests(unittest.TestCase):
                 batch_id="dry-cache", sink=lambda _value: None)
             self.assertFalse((Path(root) / "linky-current-cache").exists())
 
+    def test_persistent_cycle_passes_checkpoint_root_only_outside_dry_run(self):
+        seen = []
+        def fetcher(guild, day, **kwargs):
+            seen.append(kwargs.get("checkpoint_root"))
+            return bundle(guild, day)
+        with TemporaryDirectory() as root, patch("linky_sync_runner.process_bundle"):
+            state = Path(root)
+            run_cycle(job_name="real", mode="close-yesterday", guilds=["Nova"],
+                utc_today=dt.date(2026,8,12), database_url=None, state_root=state,
+                dry_run=False, fetcher=fetcher, batch_id="real-checkpoint",
+                sink=lambda _value:None)
+            with patch("linky_sync_runner.closure_complete", return_value=False):
+                run_cycle(job_name="dry", mode="close-yesterday", guilds=["Nova"],
+                    utc_today=dt.date(2026,8,12), database_url=None, state_root=state,
+                    dry_run=True, fetcher=fetcher, batch_id="dry-checkpoint",
+                    sink=lambda _value:None)
+        self.assertEqual(Path(root) / "linky-page-checkpoints", seen[0])
+        self.assertIsNone(seen[1])
+
     def test_daily_sync_reuses_bi_finality_chain_with_fourteen_day_lookback(self):
         source = Path("daily-sync.sh").read_text()
         self.assertIn("linky_voice_bi_batch.py", source)

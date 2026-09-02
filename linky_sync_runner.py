@@ -143,6 +143,28 @@ def prune_fetch_evidence(evidence_dir: Path, retention_days: int, utc_today: dt.
             continue
 
 
+def prune_page_checkpoints(checkpoint_root: Path, retention_days: int,
+                           utc_today: dt.date) -> None:
+    cutoff = utc_today - dt.timedelta(days=retention_days)
+    if not checkpoint_root.is_dir():
+        return
+    for date_dir in checkpoint_root.iterdir():
+        if not date_dir.is_dir():
+            continue
+        try:
+            business_date = dt.datetime.strptime(date_dir.name, "%Y%m%d").date()
+        except ValueError:
+            continue
+        if business_date >= cutoff:
+            continue
+        for candidate in date_dir.glob("*.json"):
+            candidate.unlink()
+        try:
+            date_dir.rmdir()
+        except OSError:
+            pass
+
+
 def load_guilds(tokens_path: Path, database_url: str, business_date: dt.date) -> list[str]:
     value = json.loads(tokens_path.read_text(encoding="utf-8"))
     configured = set(value["guilds"].keys())
@@ -161,6 +183,7 @@ def load_guilds(tokens_path: Path, database_url: str, business_date: dt.date) ->
 def fetch_with_consistency_rescan(fetcher: Callable[..., FetchBundle], guild: str, day: str, *,
                                   utc_today: dt.date, tokens_path: str | None,
                                   deadline_monotonic: float, page_size: int | None,
+                                  checkpoint_root: Path | None = None,
                                   mutable_seed_rows_by_endpoint: dict[str, tuple[dict[str, Any], ...]] | None = None,
                                   sleeper: Callable[[float], None] = time.sleep) -> tuple[FetchBundle, int]:
     """Retry one complete snapshot only for known cross-page consistency drift."""
@@ -170,7 +193,8 @@ def fetch_with_consistency_rescan(fetcher: Callable[..., FetchBundle], guild: st
         try:
             options = {"request_scope": scope, "utc_today": utc_today,
                 "tokens_path": tokens_path, "deadline_monotonic": deadline_monotonic,
-                "mutable_seed_rows_by_endpoint": seeds}
+                "mutable_seed_rows_by_endpoint": seeds,
+                "checkpoint_root": checkpoint_root}
             if page_size is not None:
                 options["page_size"] = page_size
             return fetcher(guild, day, **options), attempt
@@ -302,6 +326,7 @@ def run_cycle(*, job_name: str, mode: str, guilds: list[str], utc_today: dt.date
                 bundle, consistency_rescans = fetch_with_consistency_rescan(fetcher, guild, day,
                     utc_today=utc_today, tokens_path=tokens_path,
                     deadline_monotonic=deadline, page_size=page_size,
+                    checkpoint_root=None if dry_run else state_root / "linky-page-checkpoints",
                     mutable_seed_rows_by_endpoint=current_cache)
                 if day == today_ymd and not dry_run:
                     write_current_cache(state_root, day, guild, {
@@ -337,6 +362,8 @@ def run_cycle(*, job_name: str, mode: str, guilds: list[str], utc_today: dt.date
             "scanComplete": all(item["status"] in {"SUCCESS", "SKIPPED_API_CLOSED"} for item in results),
             "results": results, "observations": observations})
         prune_fetch_evidence(archive, evidence_retention_days, utc_today)
+        prune_page_checkpoints(state_root / "linky-page-checkpoints",
+            evidence_retention_days, utc_today)
     return results
 
 

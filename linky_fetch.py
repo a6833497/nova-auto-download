@@ -12,6 +12,7 @@ import datetime as dt
 import hashlib
 import hmac
 import json
+import math
 import os
 from pathlib import Path
 import time
@@ -20,6 +21,7 @@ import urllib.request
 import urllib.error
 
 from linky_api_pagination import MutableSnapshotIncomplete, configured_page_size, pull_pages
+from linky_runtime import atomic_json
 
 
 LinkyCall = Callable[[str], Dict[str, Any]]
@@ -178,11 +180,46 @@ def new_request_scope() -> RequestScope:
     return {}
 
 
+def _checkpoint_path(root: Path, guild: str, business_date: str,
+                     endpoint: str, page_size: int) -> Path:
+    identity = hashlib.sha256(
+        f"{guild}\0{business_date}\0{endpoint}\0{page_size}".encode()).hexdigest()[:24]
+    return root / business_date / f"{identity}.json"
+
+
+def _load_checkpoint(path: Path) -> dict[str, Any] | None:
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, TypeError, ValueError):
+        return None
+    return value if isinstance(value, dict) else None
+
+
+def _clear_checkpoint(path: Path) -> None:
+    try:
+        path.unlink()
+    except FileNotFoundError:
+        pass
+
+
+def _adaptive_endpoint_seconds(reported_total: int, page_size: int) -> float:
+    base = _positive_seconds("LINKY_ENDPOINT_BASE_SECONDS",
+        os.getenv("LINKY_ENDPOINT_MAX_SECONDS", "240"))
+    hard_max = _positive_seconds("LINKY_ENDPOINT_HARD_MAX_SECONDS", "900")
+    per_page = _positive_seconds("LINKY_ENDPOINT_PER_PAGE_SECONDS", "45")
+    safety = _positive_seconds("LINKY_ENDPOINT_SAFETY_SECONDS", "60")
+    pages = max(1, math.ceil(reported_total / page_size))
+    return min(hard_max, max(base, pages * per_page + safety))
+
+
 def _scan(call: LinkyCall, endpoint: str, day: str, value_key: str,
           page_size: int, require_summary: bool = True,
           allow_mutable_summary_reconciliation: bool = False,
           fallback_page_size: int | None = None,
-          mutable_seed_rows: tuple[dict[str, Any], ...] = ()) -> tuple[tuple[dict[str, Any], ...], EndpointScan]:
+          mutable_seed_rows: tuple[dict[str, Any], ...] = (),
+          checkpoint_path: Path | None = None,
+          extend_deadline: Callable[[int, int], None] | None = None,
+          ) -> tuple[tuple[dict[str, Any], ...], EndpointScan]:
     started = time.monotonic()
     requests = 0
     starting_attempts = int(getattr(call, "attempt_count", 0))
@@ -208,7 +245,10 @@ def _scan(call: LinkyCall, endpoint: str, day: str, value_key: str,
             page_size=page_size, require_unique_sid=True, require_summary=require_summary,
             allow_mutable_summary_reconciliation=allow_mutable_summary_reconciliation,
             fallback_page_size=fallback_page_size,
-            _mutable_seed_rows={str(row["sid"]): row for row in mutable_seed_rows})
+            _mutable_seed_rows={str(row["sid"]): row for row in mutable_seed_rows},
+            resume_state=_load_checkpoint(checkpoint_path) if checkpoint_path else None,
+            checkpoint=(lambda value: atomic_json(checkpoint_path, value)) if checkpoint_path else None,
+            on_reported_total=extend_deadline)
     except Exception as error:
         actual_requests = int(getattr(call, "attempt_count", starting_attempts + requests)) - starting_attempts
         retries = int(getattr(call, "retry_count", starting_retries)) - starting_retries
@@ -349,6 +389,7 @@ def fetch_guild_day(
     deadline_monotonic: float | None = None,
     page_size: int | None = None,
     mutable_seed_rows_by_endpoint: dict[str, tuple[dict[str, Any], ...]] | None = None,
+    checkpoint_root: str | Path | None = None,
 ) -> FetchBundle:
     """Fetch both core endpoints completely before returning a reusable bundle.
 
@@ -364,8 +405,13 @@ def fetch_guild_day(
     fallback_page_size = _fallback_page_size(resolved_page_size) if parsed_date == effective_today else None
     api_call = call or _authenticated_call(guild, tokens_path)
     batch_deadline = deadline_monotonic
-    guild_deadline = time.monotonic() + _positive_seconds("LINKY_GUILD_MAX_SECONDS", "480")
+    guild_deadline = time.monotonic() + _positive_seconds("LINKY_GUILD_MAX_SECONDS", "1860")
     endpoint_deadline = guild_deadline
+    endpoint_started = time.monotonic()
+    def extend_endpoint_deadline(reported_total: int, effective_page_size: int) -> None:
+        nonlocal endpoint_deadline
+        endpoint_deadline = min(guild_deadline, endpoint_started +
+            _adaptive_endpoint_seconds(reported_total, effective_page_size))
     def bounded_call(path: str) -> dict[str, Any]:
         now = time.monotonic()
         if batch_deadline is not None and now >= batch_deadline:
@@ -390,25 +436,37 @@ def fetch_guild_day(
     if request_scope is not None and cache_key in request_scope:
         return replace(request_scope[cache_key], bundle_reused=True)
 
-    endpoint_deadline = min(guild_deadline,
-        time.monotonic() + _positive_seconds("LINKY_ENDPOINT_MAX_SECONDS", "240"))
+    checkpoint_base = Path(checkpoint_root) if checkpoint_root is not None and parsed_date < effective_today else None
+    endpoint_started = time.monotonic()
+    endpoint_deadline = min(guild_deadline, endpoint_started +
+        _positive_seconds("LINKY_ENDPOINT_BASE_SECONDS", os.getenv("LINKY_ENDPOINT_MAX_SECONDS", "240")))
+    streamer_checkpoint = (_checkpoint_path(checkpoint_base, guild, business_date,
+        "/api/guild/streamer_stat", resolved_page_size) if checkpoint_base else None)
+    room_checkpoint: Path | None = None
     streamer_rows, streamer_scan = _scan(
         bounded_call, "/api/guild/streamer_stat", business_date, "total_earns",
         resolved_page_size, require_summary=require_summary,
         allow_mutable_summary_reconciliation=parsed_date == effective_today,
         fallback_page_size=fallback_page_size,
         mutable_seed_rows=(mutable_seed_rows_by_endpoint or {}).get(
-            "/api/guild/streamer_stat", ()))
+            "/api/guild/streamer_stat", ()),
+        checkpoint_path=streamer_checkpoint,
+        extend_deadline=extend_endpoint_deadline)
     try:
-        endpoint_deadline = min(guild_deadline,
-            time.monotonic() + _positive_seconds("LINKY_ENDPOINT_MAX_SECONDS", "240"))
+        endpoint_started = time.monotonic()
+        endpoint_deadline = min(guild_deadline, endpoint_started +
+            _positive_seconds("LINKY_ENDPOINT_BASE_SECONDS", os.getenv("LINKY_ENDPOINT_MAX_SECONDS", "240")))
+        room_checkpoint = (_checkpoint_path(checkpoint_base, guild, business_date,
+            "/api/guild/live_room_stat", resolved_page_size) if checkpoint_base else None)
         room_rows, room_scan = _scan(
             bounded_call, "/api/guild/live_room_stat", business_date, "receive_diamonds",
             resolved_page_size, require_summary=require_summary,
             allow_mutable_summary_reconciliation=parsed_date == effective_today,
             fallback_page_size=fallback_page_size,
             mutable_seed_rows=(mutable_seed_rows_by_endpoint or {}).get(
-                "/api/guild/live_room_stat", ()))
+                "/api/guild/live_room_stat", ()),
+            checkpoint_path=room_checkpoint,
+            extend_deadline=extend_endpoint_deadline)
     except FetchScanError as error:
         if parsed_date == effective_today:
             error.cache_rows_by_endpoint.setdefault(
@@ -418,8 +476,9 @@ def fetch_guild_day(
     online_sids: frozenset[int] = frozenset()
     online_scan: EndpointScan | None = None
     if parsed_date == effective_today:
-        endpoint_deadline = min(guild_deadline,
-            time.monotonic() + _positive_seconds("LINKY_ENDPOINT_MAX_SECONDS", "240"))
+        endpoint_started = time.monotonic()
+        endpoint_deadline = min(guild_deadline, endpoint_started +
+            _positive_seconds("LINKY_ENDPOINT_BASE_SECONDS", os.getenv("LINKY_ENDPOINT_MAX_SECONDS", "240")))
         online_sids, online_scan = _online_anchors(bounded_call, resolved_page_size)
 
     bundle = FetchBundle(
@@ -428,6 +487,12 @@ def fetch_guild_day(
         streamer_scan=streamer_scan, voice_room_scan=room_scan,
         online_anchor_sids=online_sids, online_scan=online_scan,
     )
+    # Do not discard an endpoint's completed prefix until the entire guild/day
+    # bundle is valid.  If a later endpoint fails, the next attempt validates
+    # page one and reuses the already complete endpoint instead of rescanning.
+    for completed_checkpoint in (streamer_checkpoint, room_checkpoint):
+        if completed_checkpoint is not None:
+            _clear_checkpoint(completed_checkpoint)
     if request_scope is not None:
         request_scope[cache_key] = bundle
     return bundle
