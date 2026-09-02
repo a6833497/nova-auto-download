@@ -8,7 +8,7 @@ import argparse, glob, json, os, re, sys
 
 EXPECTED = {
     "印尼1-Nova": ("Nova",), "印尼2-Carote": ("Carote",), "印尼3-宝石": ("宝石", "Permata"),
-    "巴西1-Nova": ("BR-HotBR", "BR-HotSozinha"), "巴西2-Evian": ("Evian",), "巴西3-Wisky": ("Wisky", "Whisky"),
+    "巴西1-Nova": ("BR-HotBR", "BR-HotSozinha"), "巴西2-Evian": ("Evian",),
     "巴西4-Doce": ("Doce",), "西语1-Nova": ("Nova",), "西语2-Evian": ("Evian",),
 }
 CORE = ({"sid"}, {"create_date(day)", "active_date(day)", "date"}, {"guild_name"},

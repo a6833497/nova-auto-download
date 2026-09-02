@@ -20,7 +20,7 @@ date_arg = os.environ["API_INGEST_DATE"]
 data_dir = os.environ["API_INGEST_DATA_DIR"]
 tmp_dir = os.environ["API_INGEST_TMP_DIR"]
 date_compact = date_arg.replace("-", "")
-retired_prefixes = ("土耳其1-Evian_",)
+retired_prefixes = ("土耳其1-Evian_", "巴西3-Wisky_")
 
 json_files = [f for f in os.listdir(data_dir)
               if f.endswith(".json")

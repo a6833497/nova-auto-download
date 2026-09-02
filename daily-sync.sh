@@ -57,7 +57,7 @@ log() {
 
 # 已退役的数据源不再下载或导入。如果当日目录留有旧文件，先移到隔离目录，
 # 避免 API/Playwright 降级路径将历史残留文件重新写入正式库。
-RETIRED_REPORTS=("土耳其1-Evian")
+RETIRED_REPORTS=("土耳其1-Evian" "巴西3-Wisky")
 quarantine_retired_reports() {
   local quarantine_dir="$DOWNLOAD_DIR/_retired"
   local report file destination moved=0
@@ -122,7 +122,7 @@ fi
 # ── Step 0.5: 尝试API方式下载（更快更稳）──────────────────
 # 2026-05-02 修：按现役公会名一一检查，缺任何一个就重下载。
 API_SUCCESS=0
-EXPECTED_REPORTS="印尼1-Nova 印尼2-Carote 印尼3-宝石 巴西1-Nova 巴西2-Evian 巴西3-Wisky 巴西4-Doce 西语1-Nova 西语2-Evian"
+EXPECTED_REPORTS="印尼1-Nova 印尼2-Carote 印尼3-宝石 巴西1-Nova 巴西2-Evian 巴西4-Doce 西语1-Nova 西语2-Evian"
 MISSING_REPORTS=""
 for r in $EXPECTED_REPORTS; do
   rcount=$(ls "$DOWNLOAD_DIR"/${r}_*.json 2>/dev/null | wc -l | tr -d ' ')
@@ -132,7 +132,7 @@ for r in $EXPECTED_REPORTS; do
 done
 
 if [ -z "$MISSING_REPORTS" ]; then
-  log "✅ 9 个现役公会 JSON 全部存在，跳过 API 下载"
+  log "✅ 8 个现役公会 JSON 全部存在，跳过 API 下载"
   API_SUCCESS=1
 else
   log "📡 Step 0.5: 缺公会[$MISSING_REPORTS]，触发 API 下载..."
@@ -154,7 +154,7 @@ else
   done
 
   if [ -z "$MISSING_REPORTS" ]; then
-    log "  ✅ API下载成功: 9 个现役公会全到位"
+    log "  ✅ API下载成功: 8 个现役公会全到位"
     API_SUCCESS=1
   else
     log "  ⚠️ API下载仍缺[$MISSING_REPORTS]，降级到 Playwright"
@@ -208,7 +208,7 @@ if [ "$API_SUCCESS" -eq 0 ]; then
     TOTAL_FILES=$(ls "$DOWNLOAD_DIR"/*.xlsx 2>/dev/null | wc -l | tr -d ' ')
     log "  下载文件: $TOTAL_FILES 个"
 
-    EXPECTED_REPORTS=("印尼1-Nova" "印尼2-Carote" "巴西1-Nova" "巴西2-Evian" "巴西3-Wisky" "巴西4-Doce" "西语1-Nova" "西语2-Evian")
+    EXPECTED_REPORTS=("印尼1-Nova" "印尼2-Carote" "巴西1-Nova" "巴西2-Evian" "巴西4-Doce" "西语1-Nova" "西语2-Evian")
     MISSING_REPORTS=()
     for REPORT in "${EXPECTED_REPORTS[@]}"; do
       if ! ls "$DOWNLOAD_DIR/${REPORT}_"*.xlsx >/dev/null 2>&1; then

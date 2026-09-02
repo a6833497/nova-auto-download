@@ -21,7 +21,6 @@ const ALL_REPORTS = [
   { name: "印尼2-Carote",   id: "bae08b94-8dad-4691-a7ca-9783de160a39", ticket: "c5e15c05-565c-4aa5-859c-fe2c93910c44" },
   { name: "巴西1-Nova",     id: "6d33fdf8-9236-455b-be7b-4ff6ea04dabe", ticket: "5fe5b405-3302-4fe3-a89a-d657861b9459" },
   { name: "巴西2-Evian",    id: "30b58907-ae0c-407d-b3f0-e52d09f71e6b", ticket: "949597c4-18bd-4bff-b692-6f606a1cd327" },
-  { name: "巴西3-Wisky",    id: "75e0152a-25cf-4bf0-80e6-2889bf8e6798", ticket: "3f7ee12b-098b-49a5-aef9-fd899b845c18" },
   { name: "巴西4-Doce",     id: "2034e69d-3c70-4b43-8a70-47f3cb8a45a5", ticket: "a9e70ecc-0acf-4562-947c-6cd2d0fe129a" },
   { name: "西语1-Nova",     id: "6e5c9d15-df45-4ee9-b9b7-59d1265f7388", ticket: "75d522ff-bff5-4522-90b2-ebb789439485" },
   { name: "西语2-Evian",    id: "1fca6b36-5fa6-4906-906d-9495e60f5fe1", ticket: "248e5488-a1ab-42c5-8104-aee77e6565b9" },

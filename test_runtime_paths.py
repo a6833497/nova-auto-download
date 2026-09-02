@@ -66,10 +66,28 @@ class RuntimePathsTest(unittest.TestCase):
         self.assertNotIn(retired, api_download)
         self.assertNotIn(retired, browser_download)
         self.assertNotIn(retired, session_helper)
-        self.assertIn(f'RETIRED_REPORTS=("{retired}")', daily)
+        self.assertIn(retired, daily.split("RETIRED_REPORTS=(", 1)[1].split(")", 1)[0])
         self.assertIn("quarantine_retired_reports", daily)
-        self.assertIn(f'retired_prefixes = ("{retired}_",)', api_ingest)
+        self.assertIn(f'"{retired}_"', api_ingest.split("retired_prefixes = (", 1)[1].split(")", 1)[0])
         self.assertNotIn('label.startswith("土耳其")', quality_gate)
+
+    def test_retired_whisky_report_is_not_collected_gated_or_imported(self):
+        retired = "巴西3-Wisky"
+        daily = (ROOT / "daily-sync.sh").read_text(encoding="utf-8")
+        api_download = (ROOT / "api-download.mjs").read_text(encoding="utf-8")
+        browser_download = (ROOT / "auto-download.mjs").read_text(encoding="utf-8")
+        session_helper = (ROOT / "get-bi-session.mjs").read_text(encoding="utf-8")
+        api_ingest = (ROOT / "api-ingest.sh").read_text(encoding="utf-8")
+        quality_gate = (ROOT / "data-quality-gate.py").read_text(encoding="utf-8")
+
+        self.assertNotIn(retired, api_download)
+        self.assertNotIn(retired, browser_download)
+        self.assertNotIn(retired, session_helper)
+        self.assertIn(retired, daily.split("RETIRED_REPORTS=(", 1)[1].split(")", 1)[0])
+        active_reports = daily.split('EXPECTED_REPORTS="', 1)[1].split('"', 1)[0]
+        self.assertNotIn(retired, active_reports)
+        self.assertIn(f'"{retired}_"', api_ingest.split("retired_prefixes = (", 1)[1].split(")", 1)[0])
+        self.assertNotIn(retired, quality_gate)
 
     def test_every_linky_entrypoint_declares_runtime_requirements(self):
         policy = json.loads((ROOT / "runtime-closure-policy.json").read_text(encoding="utf-8"))
