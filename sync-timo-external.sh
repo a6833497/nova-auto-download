@@ -8,6 +8,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 DISPLAY_TIME_REBUILDER=${TIMO_DISPLAY_TIME_REBUILDER:-$SCRIPT_DIR/rebuild_display_time.py}
 SYNC_WINDOW=${TIMO_SYNC_WINDOW:-daily}
 DATA_WRITE_LOCK="${NOVA_DATA_WRITE_LOCK:-/tmp/nova-data-write.lock}"
+PRODUCTION_RELEASE_LOCK="${NOVA_PRODUCTION_RELEASE_LOCK:-/tmp/nova-production-release.lock}"
 
 exec 9>/tmp/timo-external-sync.lock
 flock -n 9 || exit 75
@@ -50,6 +51,16 @@ for date in $(seq 0 $(( ( $(date -d "$date_to" +%s) - $(date -d "$date_from" +%s
   business_date=$(date -d "$date_from +$date day" +%F)
   npx tsx src/scripts/reconcile-timo-display.ts "$business_date"
 done
+
+# Source retrieval and reconciliation only need the data writer lock. Release
+# it before entering publication so slow upstream I/O does not hold the
+# production release lock. Publication takes release -> data in canonical
+# order for one atomic switch.
+flock -u 8
+exec 7>"$PRODUCTION_RELEASE_LOCK"
+flock -n 7 || exit 75
+exec 8>"$DATA_WRITE_LOCK"
+flock 8
 
 # current_subject_owner is published by the canonical six-sheet ownership
 # chain. Timo source refresh must consume that projection, not rebuild a second

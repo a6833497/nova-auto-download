@@ -16,6 +16,16 @@ class TimoSyncRunnerContractTest(unittest.TestCase):
         self.assertLess(RUNNER.index("flock -n 9"), RUNNER.index("flock 8"))
         self.assertLess(RUNNER.index("flock 8"), RUNNER.index("sync-timo-external.ts"))
 
+    def test_release_lock_is_scoped_to_publication(self):
+        reconcile = RUNNER.index("reconcile-timo-display.ts")
+        unlock = RUNNER.index("flock -u 8")
+        release_lock = RUNNER.index('exec 7>"$PRODUCTION_RELEASE_LOCK"')
+        publication = RUNNER.index("scripts/run-daily-publication.sh")
+        self.assertLess(reconcile, unlock)
+        self.assertLess(unlock, release_lock)
+        self.assertLess(release_lock, publication)
+        self.assertIn('PRODUCTION_RELEASE_LOCK="${NOVA_PRODUCTION_RELEASE_LOCK:-/tmp/nova-production-release.lock}"', RUNNER)
+
     def test_consumes_canonical_owner_projection_without_legacy_rebuild(self):
         self.assertNotIn("sync-timo-ownership", RUNNER)
         self.assertIn("current_subject_owner is published by the canonical six-sheet", RUNNER)
