@@ -25,6 +25,8 @@ class PaginationTests(unittest.TestCase):
         source=Path(__file__).with_name('linky_consumers.py').read_text()
         conflict=source.split('ON CONFLICT (sid,stat_date) DO UPDATE SET',1)[1]
         self.assertNotIn('guild=EXCLUDED.guild',conflict)
+        self.assertIn('sid=ANY(%s) AND guild<>%s', source)
+        self.assertIn('Linky SID belongs to another guild', source)
 
     def test_only_ended_business_days_keep_multiple_timestamped_versions(self):
         detected=dt.datetime(2026,8,4,9,30,tzinfo=dt.timezone.utc)

@@ -111,6 +111,21 @@ class LinkyRunnerTests(unittest.TestCase):
         self.assertEqual("FAILED", results[0]["status"])
         consumer.assert_not_called()
 
+    def test_pagination_shape_drift_gets_one_bounded_rescan(self):
+        calls = []
+        def fetcher(guild, day, **_kwargs):
+            calls.append((guild, day))
+            if len(calls) == 1:
+                raise FetchScanError("Linky final page size is invalid: actual=1 expected=2",
+                    {"endpoint": "/api/guild/streamer_stat"})
+            return bundle(guild, day)
+        value, rescans = fetch_with_consistency_rescan(fetcher, "Nova", "20260810",
+            utc_today=dt.date(2026,8,10), tokens_path=None,
+            deadline_monotonic=10**12, page_size=5000, sleeper=lambda _delay: None)
+        self.assertEqual("Nova", value.source_guild)
+        self.assertEqual(1, rescans)
+        self.assertEqual(2, len(calls))
+
     def test_default_sources_are_active_dictionary_entries_with_configured_credentials(self):
         class Cursor:
             def __enter__(self): return self

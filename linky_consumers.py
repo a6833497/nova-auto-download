@@ -42,6 +42,23 @@ def write_daily_ledger(connection: Any, bundle: Any) -> int:
     values = build_ledger_rows(bundle)
     stat_date = bundle_date(bundle)
     with connection.cursor() as cursor:
+        # The physical key is (sid, stat_date).  Never let a duplicate SID
+        # from another source guild silently overwrite the existing guild's
+        # attribution: that would make every downstream guild aggregate
+        # wrong while still appearing successful.  A conflicting bundle is
+        # rejected atomically and must be reconciled from the source first.
+        if values:
+            cursor.execute(
+                """SELECT sid,guild FROM linke_streamer_daily
+                   WHERE stat_date=%s AND sid=ANY(%s) AND guild<>%s
+                   LIMIT 20""",
+                (stat_date, [row[1] for row in values], bundle.source_guild),
+            )
+            conflicts = cursor.fetchall()
+            if conflicts:
+                sample = ",".join(f"{sid}:{guild}" for sid, guild in conflicts[:3])
+                raise RuntimeError(
+                    f"Linky SID belongs to another guild for {stat_date}: {sample}")
         cursor.execute("SELECT 1 FROM linke_streamer_daily WHERE stat_date=%s AND guild=%s AND settled=true LIMIT 1",
             (stat_date, bundle.source_guild))
         locked = cursor.fetchone() is not None and (dt.datetime.now(dt.timezone.utc).date() - stat_date).days > 2

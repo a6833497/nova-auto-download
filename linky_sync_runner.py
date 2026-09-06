@@ -31,6 +31,18 @@ CONSISTENCY_DRIFT_MARKERS = (
     "duplicate raw SID",
     "response total_item changed",
     "mutable pagination drift",
+    # Linky occasionally returns a transient/mutable pagination envelope.  A
+    # single bounded rescan is safe here: the detail consumer still requires a
+    # complete bundle and exact total_item reconciliation before any write.
+    "response total is invalid",
+    "response total changed",
+    "raw rows exceed reported total",
+    "pagination ended before reported total",
+    "final page size is invalid",
+    "total_item is not an object",
+    "total_item has no ",
+    "mutable response total_item has no ",
+    "detail amount differs from total_item",
 )
 BATCH_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
 
